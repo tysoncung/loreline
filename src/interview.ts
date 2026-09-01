@@ -96,6 +96,13 @@ const FINDING_QUESTIONS: Record<string, InterviewQuestion> = {
     reason: "Automated verification is missing or incomplete.",
     sourceFinding: "verification",
   },
+  "knowledge-concentration": {
+    id: "concentration-backups",
+    category: "ownership",
+    question: "Which areas would stall if their main contributor left tomorrow, and who should shadow them?",
+    reason: "Git history shows knowledge concentrated in few people.",
+    sourceFinding: "knowledge-concentration",
+  },
 };
 
 export function buildInterviewQuestions(

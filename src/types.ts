@@ -1,4 +1,5 @@
 import type { Citation } from "./citations.js";
+import type { HistoryInsights } from "./history.js";
 import type { InterviewScope, ScanScope } from "./scope.js";
 
 export type FindingStatus = "pass" | "missing" | "partial";
@@ -26,6 +27,7 @@ export interface ReadinessReport {
   };
   scope?: ScanScope;
   findings: Finding[];
+  history?: HistoryInsights;
 }
 
 export interface LorelineConfig {

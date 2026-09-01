@@ -69,6 +69,48 @@
           }
         }
       }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available", "analyzedCommits", "excludedIdentities", "methodology", "areas"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "analyzedCommits": { "type": "integer", "minimum": 0 },
+        "excludedIdentities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "methodology": { "type": "string", "minLength": 1 },
+        "areas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["area", "commits", "lastChangeAt", "contributors", "topShare"],
+            "properties": {
+              "area": { "type": "string", "minLength": 1 },
+              "commits": { "type": "integer", "minimum": 0 },
+              "lastChangeAt": { "type": ["string", "null"], "format": "date-time" },
+              "contributors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "commits", "share", "lastCommitAt"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "commits": { "type": "integer", "minimum": 0 },
+                    "share": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "lastCommitAt": { "type": "string", "format": "date-time" }
+                  }
+                }
+              },
+              "topShare": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
     }
   }
 }

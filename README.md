@@ -39,6 +39,7 @@ Loreline checks for:
 - Decision history
 - Operations and troubleshooting knowledge
 - Automated verification
+- Concentration of knowledge in git history
 
 It writes:
 
@@ -66,6 +67,22 @@ loreline scan --include "src/**" --include "README.md"
 ```
 
 Excluded files never appear in `filesScanned`, finding evidence, or citations. The readiness report only records a `scope` field when `--include` or `--exclude` was used; a scan with no scope flags produces the same artifact as today.
+
+#### Git history and knowledge concentration
+
+Every scan of a git repository also analyzes commit history to find areas where knowledge is concentrated in a single contributor. Loreline counts each commit once per area (the first path segment of the files it touched, or `(root)` for files at the repository root) per author, ignoring merge commits. Areas with at least 5 counted commits where one contributor authored more than 80% of them are flagged in the `knowledge-concentration` finding. This is a familiarity signal from commit-touch frequency, not a measure of code ownership, current expertise, or contribution quality, and analysis never leaves the machine.
+
+Bot identities (any author name ending in `[bot]`) are always excluded. Exclude additional identities, such as your own alias or a former contributor, with a repeatable flag:
+
+```bash
+loreline scan --exclude-identity "dependabot" --exclude-identity "Alex Chen"
+```
+
+Skip history analysis entirely with `--no-history`. When history is unavailable (not a git repository, or git is missing) or fewer than 10 commits were analyzed, the finding falls back to `partial` with a recommendation to review contributor concentration manually. The readiness report only includes the top-level `history` summary field when history was available.
+
+```bash
+loreline scan --no-history
+```
 
 ### Capture knowledge before it leaves
 
@@ -200,7 +217,9 @@ The `schemaVersion` field controls compatibility. Loreline preserves support for
 
 ## Status
 
-Loreline is an early prototype. It supports repository readiness scans, adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes document collections, Git history informed questions, approval workflows, and pluggable AI providers.
+Loreline is an early prototype. It supports repository readiness scans (including git history informed knowledge-concentration checks), adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes document collections, approval workflows, and pluggable AI providers.
+
+The readiness score's baseline shifted with the addition of the `knowledge-concentration` finding: total finding weight moved from 100 to 110, so scores from before this change are not directly comparable to scores after it. Re-run `loreline scan` to get a current baseline.
 
 ## Contributing
 

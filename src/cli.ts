@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { initialize, loadConfig, loadRequiredConfig } from "./config.js";
+import { analyzeHistory } from "./history.js";
 import { conductInterview, writeInterview } from "./interview.js";
 import {
   compileKnowledge,
@@ -73,14 +74,24 @@ async function scanCommand(args: string[]): Promise<void> {
       "fail-under": { type: "string" },
       include: { type: "string", multiple: true, default: [] },
       exclude: { type: "string", multiple: true, default: [] },
+      "no-history": { type: "boolean", default: false },
+      "exclude-identity": { type: "string", multiple: true, default: [] },
     },
   });
   const root = path.resolve(values.path);
   const config = await loadConfig(root);
-  const report = await scanRepository(root, config, {
-    include: values.include,
-    exclude: values.exclude,
-  });
+  const history = values["no-history"]
+    ? undefined
+    : await analyzeHistory(root, { excludeIdentities: values["exclude-identity"] });
+  const report = await scanRepository(
+    root,
+    config,
+    {
+      include: values.include,
+      exclude: values.exclude,
+    },
+    history ? { history } : undefined,
+  );
   const output = await writeReport(report, path.join(root, config.output.directory));
 
   if (values.json) {
@@ -289,6 +300,7 @@ Turn undocumented organizational knowledge into verified, AI-ready context.
 Usage:
   loreline init [--path <directory>]
   loreline scan [--path <directory>] [--json] [--fail-under <score>] [--include <glob>] [--exclude <glob>]
+  loreline scan [...] [--no-history] [--exclude-identity <name>]
   loreline interview --interviewee <name> [--path <directory>] [--answers <file>]
   loreline interview --resume <sessionId> [--revise] [--path <directory>] [--answers <file>]
   loreline interview [...] [--categories <list>] [--findings <list>] [--interactive]
