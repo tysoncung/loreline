@@ -91,6 +91,23 @@ test("re-planning after import reports every document as unchanged", async () =>
   }
 });
 
+test("re-importing an unchanged document returns it deep-equal to the original, including importedAt", async () => {
+  const source = await sourceFixture({
+    "overview.md": "# Overview\n\nThis system handles payments.\n",
+  });
+  try {
+    const adapter = getAdapter("markdown");
+    const documents = await adapter.import(source, undefined);
+    const log: ImportLog = { schemaVersion: 1, project: "example", documents };
+
+    const reimported = await adapter.import(source, log);
+    assert.equal(reimported.length, 1);
+    assert.deepEqual(reimported[0], documents[0]);
+  } finally {
+    await rm(source, { recursive: true });
+  }
+});
+
 test("editing a source file after import is reported as changed", async () => {
   const source = await sourceFixture({
     "overview.md": "# Overview\n\nThis system handles payments.\n",
@@ -206,6 +223,53 @@ test("export without --force refuses to overwrite an existing destination file",
 
     const secondAttempt = await adapter.export(context, destination, { force: true });
     assert.equal(secondAttempt.length, 2);
+  } finally {
+    await rm(destination, { recursive: true });
+  }
+});
+
+test("export disambiguates two categories that slugify to the same file name", async () => {
+  const destination = path.join(await mkdtemp(path.join(tmpdir(), "loreline-export-")), "dest");
+  try {
+    const context = sampleContext({
+      entries: [
+        {
+          id: "risk-bang",
+          category: "Risk!",
+          question: "What could go wrong (bang)?",
+          answer: "Answer from the Risk! category.",
+          source: { file: "interviews/alex.json", interviewee: "Alex", generatedAt: "2026-08-01T00:00:00.000Z" },
+        },
+        {
+          id: "risk-lower",
+          category: "risk",
+          question: "What could go wrong (lower)?",
+          answer: "Answer from the risk category.",
+          source: { file: "interviews/alex.json", interviewee: "Alex", generatedAt: "2026-08-01T00:00:00.000Z" },
+        },
+      ],
+    });
+
+    const planned = plannedExportPaths(context, destination);
+    assert.equal(planned.length, 2);
+    assert.equal(new Set(planned).size, 2, "planned file paths must be distinct");
+
+    const adapter = getAdapter("markdown");
+    const files = await adapter.export(context, destination, { force: false });
+    assert.equal(files.length, 2);
+    assert.equal(new Set(files).size, 2, "written file paths must be distinct");
+
+    // The dry-run preview must match exactly what --yes actually writes.
+    assert.deepEqual(planned.slice().sort(), files.slice().sort());
+
+    const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
+    const bangFile = contents.find((text) => text.includes("What could go wrong (bang)?"));
+    const lowerFile = contents.find((text) => text.includes("What could go wrong (lower)?"));
+    assert.ok(bangFile, "expected a file containing the Risk! category's entry");
+    assert.ok(lowerFile, "expected a file containing the risk category's entry");
+    assert.notEqual(bangFile, lowerFile);
+    assert.doesNotMatch(bangFile ?? "", /What could go wrong \(lower\)\?/);
+    assert.doesNotMatch(lowerFile ?? "", /What could go wrong \(bang\)\?/);
   } finally {
     await rm(destination, { recursive: true });
   }

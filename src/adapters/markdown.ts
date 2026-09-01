@@ -256,11 +256,35 @@ function categorize(context: KnowledgeContext): Array<[string, KnowledgeEntry[]]
   return [...categories.entries()].sort(([left], [right]) => left.localeCompare(right));
 }
 
+// Two distinct category names can slugify to the same string (e.g. "Risk!"
+// and "risk" both become "risk"). Rather than let a later category silently
+// clobber (with --force) or spuriously conflict with (without --force) an
+// earlier one's file, every category gets a distinct file: the first
+// category to produce a given base slug (in the categorize() sort order,
+// which is stable and identical between plannedExportPaths and export) keeps
+// it, and each subsequent collision is disambiguated with a -2, -3, ...
+// suffix.
+function slugsForCategories(grouped: Array<[string, KnowledgeEntry[]]>): Map<string, string> {
+  const counts = new Map<string, number>();
+  const slugs = new Map<string, string>();
+  for (const [category] of grouped) {
+    const base = slugify(category);
+    const count = (counts.get(base) ?? 0) + 1;
+    counts.set(base, count);
+    slugs.set(category, count === 1 ? base : `${base}-${count}`);
+  }
+  return slugs;
+}
+
 // Computes the destination file paths one `export` call would write, without
 // touching the filesystem. Used both by the CLI to render a dry-run preview
-// and by tests to assert a dry run leaves the destination untouched.
+// and by tests to assert a dry run leaves the destination untouched. Applies
+// the same slug disambiguation as `export` so the printed plan always
+// matches what --yes actually writes.
 export function plannedExportPaths(context: KnowledgeContext, destination: string): string[] {
-  return categorize(context).map(([category]) => path.join(destination, `${slugify(category)}.md`));
+  const grouped = categorize(context);
+  const slugs = slugsForCategories(grouped);
+  return grouped.map(([category]) => path.join(destination, `${slugs.get(category) ?? slugify(category)}.md`));
 }
 
 function renderCategoryMarkdown(category: string, entries: KnowledgeEntry[]): string {
@@ -304,9 +328,11 @@ async function exportMarkdown(
   options: { force: boolean },
 ): Promise<string[]> {
   await mkdir(destination, { recursive: true });
+  const grouped = categorize(context);
+  const slugs = slugsForCategories(grouped);
   const files: string[] = [];
-  for (const [category, entries] of categorize(context)) {
-    const filePath = path.join(destination, `${slugify(category)}.md`);
+  for (const [category, entries] of grouped) {
+    const filePath = path.join(destination, `${slugs.get(category) ?? slugify(category)}.md`);
     if (!options.force && (await fileExists(filePath))) {
       throw new Error(`Refusing to overwrite existing file "${filePath}" without --force.`);
     }
