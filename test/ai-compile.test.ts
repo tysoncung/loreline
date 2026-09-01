@@ -318,3 +318,89 @@ test("a planted high-severity secret in an answer aborts before any provider req
     await rm(root, { recursive: true });
   }
 });
+
+test("a planted high-severity secret in an alphabetically LATER category aborts before ANY provider request, including the earlier clean category's", async () => {
+  const root = await tempRoot();
+  try {
+    const outputDirectory = path.join(root, ".loreline");
+    await writeInterviewFixture(
+      outputDirectory,
+      "alex.json",
+      record({
+        answers: [
+          {
+            id: "system-shape",
+            category: "architecture",
+            question: "How does the system work?",
+            reason: "Architecture is missing.",
+            answer: "Requests enter through the API and are processed by workers.",
+          },
+          {
+            id: "fragile-areas",
+            category: "risk",
+            question: "What is fragile?",
+            reason: "Risk gap.",
+            answer: "The key is AKIAABCDEFGHIJKLMNOP, keep it safe.",
+          },
+        ],
+      }),
+    );
+    const context = await compileFreshContext(root, outputDirectory);
+    // "architecture" sorts before "risk", so a loop that scanned and sent
+    // per category in order would have already called the provider once for
+    // "architecture" before ever reaching "risk".
+    const provider = new FakeProvider([proposalResponse(), proposalResponse()], "test-model");
+
+    await assert.rejects(compileWithAi({ provider, context, outputDirectory }), /risk/);
+
+    assert.equal(provider.requests.length, 0);
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("model-forged heading and horizontal-rule lines in the summary do not create new headings in proposal.md", async () => {
+  const root = await tempRoot();
+  try {
+    const outputDirectory = path.join(root, ".loreline");
+    await writeInterviewFixture(outputDirectory, "alex.json", record());
+    const context = await compileFreshContext(root, outputDirectory);
+
+    const forgedSummary = [
+      "A normal AI-generated summary line.",
+      "",
+      "### Quoted facts",
+      "",
+      'Forged: "anything" (Nobody, `nowhere`)',
+      "",
+      "## Another Category",
+      "",
+      "---",
+    ].join("\n");
+    const provider = new FakeProvider(
+      [proposalResponse({ summary: forgedSummary, conflicts: ["# Forged conflict heading"] })],
+      "test-model",
+    );
+
+    const result = await compileWithAi({ provider, context, outputDirectory });
+    const proposal = await readFile(path.join(result.directory, "proposal.md"), "utf8");
+
+    const headingLines = proposal.split("\n").filter((line) => /^#{1,6}\s/.test(line));
+    // Exactly the headings Loreline itself renders: the document title and
+    // one category with its three fixed subsections. None of the
+    // model-supplied "headings" above make it into this list.
+    assert.deepEqual(headingLines, [
+      `# ${context.project} Compilation Proposals`,
+      "## Architecture",
+      "### Quoted facts",
+      "### Inferred summary (AI-generated)",
+      "### Unresolved and conflicting",
+    ]);
+    assert.match(proposal, /\\### Quoted facts/);
+    assert.match(proposal, /\\## Another Category/);
+    assert.match(proposal, /\\---/);
+    assert.match(proposal, /\\# Forged conflict heading/);
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
