@@ -54,6 +54,8 @@ Use a readiness threshold in CI:
 loreline scan --fail-under 70
 ```
 
+See [docs/github-actions.md](docs/github-actions.md) for an official GitHub Actions workflow you can copy directly into your repository.
+
 ### Capture knowledge before it leaves
 
 ```bash

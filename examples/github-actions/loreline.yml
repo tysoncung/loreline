@@ -1,0 +1,70 @@
+# Loreline readiness workflow
+#
+# Copy this file to .github/workflows/loreline.yml in your own repository.
+# The Loreline version below is pinned to 0.2.0 for reproducible CI runs.
+# Bump the pin deliberately when you want to adopt a newer release; do not
+# drop it in favor of "latest".
+#
+# By default this workflow makes no external AI calls. See
+# docs/github-actions.md for how to enable optional AI provider secrets.
+name: Loreline readiness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Assess AI readiness
+        run: npx @tysoncung/loreline@0.2.0 scan --fail-under 70
+
+      - name: Verify knowledge (advisory)
+        # Verify is advisory until interviews exist, so a failing check
+        # here does not fail the workflow.
+        run: npx @tysoncung/loreline@0.2.0 verify || true
+
+      # Optional: set an AI provider secret once adaptive interview
+      # features are enabled. See docs/github-actions.md.
+      # env:
+      #   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Upload Loreline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loreline-report
+          path: .loreline/
+
+      - name: Write step summary
+        if: always()
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const report = JSON.parse(fs.readFileSync(".loreline/readiness.json", "utf8"));
+            const rows = report.findings
+              .map((finding) => `| ${finding.title} | ${finding.status} |`)
+              .join("\n");
+            const summary = [
+              `## Loreline readiness: ${report.score}/100`,
+              "",
+              "| Finding | Status |",
+              "| --- | --- |",
+              rows,
+              "",
+            ].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          '
