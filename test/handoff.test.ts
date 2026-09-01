@@ -217,20 +217,69 @@ test("stale/disputed knowledge and failed verification boost matching risks with
   }
 });
 
+test("a disputed 'ownership'-category review boosts only the ownership finding risk, never a concentration risk sharing that topic", async () => {
+  const root = await fullFixture();
+  try {
+    const outputDirectory = path.join(root, ".loreline");
+    const plan = await buildHandoffPlan({ config: config(root), outputDirectory });
+
+    // Both concentration risks carry "ownership" among their recommendedTopics
+    // (it is a recommendation to revisit ownership, not a claim that the
+    // disputed review caused the concentration), so neither may be inflated
+    // by the disputed ownership-category review recorded in context.json.
+    const paymentsRisk = plan.risks.find((risk) => risk.id === "concentration-payments");
+    const docsRisk = plan.risks.find((risk) => risk.id === "concentration-docs");
+    assert.ok(paymentsRisk?.recommendedTopics.includes("ownership"));
+    assert.ok(docsRisk?.recommendedTopics.includes("ownership"));
+    assert.equal(paymentsRisk?.severity, 15); // base concentration severity only, no departing given
+    assert.equal(docsRisk?.severity, 15);
+    assert.ok(!paymentsRisk?.factors.some((factor) => factor.includes("Stale or disputed")));
+    assert.ok(!docsRisk?.factors.some((factor) => factor.includes("Stale or disputed")));
+
+    const ownershipRisk = plan.risks.find((risk) => risk.id === "ownership");
+    assert.equal(ownershipRisk?.severity, 25); // 15 (missing finding) + 10 (disputed review), and only here
+    assert.ok(ownershipRisk?.factors.some((factor) => factor.includes("Stale or disputed")));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
 test("--date adds a days-until-departure factor to every risk and +10 severity when under 30 days", async () => {
   const root = await fullFixture();
   try {
     const outputDirectory = path.join(root, ".loreline");
-    const near = await buildHandoffPlan({ config: config(root), outputDirectory, departureDate: "2026-09-15" });
+    const now = new Date("2026-09-01T00:00:00.000Z");
+
+    const near = await buildHandoffPlan({
+      config: config(root),
+      outputDirectory,
+      departureDate: "2026-09-15",
+      now,
+    });
     for (const risk of near.risks) {
-      assert.ok(risk.factors.some((factor) => /^days until departure: -?\d+$/.test(factor)));
+      assert.ok(risk.factors.includes("days until departure: 14"));
     }
     const operationsNear = near.risks.find((risk) => risk.id === "operations");
     assert.equal(operationsNear?.severity, 25); // 15 base + 10 (under 30 days)
 
-    const far = await buildHandoffPlan({ config: config(root), outputDirectory, departureDate: "2099-01-01" });
+    const far = await buildHandoffPlan({
+      config: config(root),
+      outputDirectory,
+      departureDate: "2099-01-01",
+      now,
+    });
     const operationsFar = far.risks.find((risk) => risk.id === "operations");
     assert.equal(operationsFar?.severity, 15); // no +10, far in the future
+
+    const past = await buildHandoffPlan({
+      config: config(root),
+      outputDirectory,
+      departureDate: "2026-08-01",
+      now,
+    });
+    for (const risk of past.risks) {
+      assert.ok(risk.factors.includes("days until departure: -31")); // may be negative
+    }
   } finally {
     await rm(root, { recursive: true });
   }
@@ -242,6 +291,23 @@ test("rejects a malformed --date", async () => {
     const outputDirectory = path.join(root, ".loreline");
     await assert.rejects(
       buildHandoffPlan({ config: config(root), outputDirectory, departureDate: "09/15/2026" }),
+    );
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("rejects calendar-invalid dates instead of silently rolling them over", async () => {
+  const root = await fullFixture();
+  try {
+    const outputDirectory = path.join(root, ".loreline");
+    // Date.parse would otherwise roll "2026-02-30" forward to 2026-03-02 and
+    // "2026-04-31" forward to 2026-05-01 instead of rejecting them.
+    await assert.rejects(
+      buildHandoffPlan({ config: config(root), outputDirectory, departureDate: "2026-02-30" }),
+    );
+    await assert.rejects(
+      buildHandoffPlan({ config: config(root), outputDirectory, departureDate: "2026-04-31" }),
     );
   } finally {
     await rm(root, { recursive: true });

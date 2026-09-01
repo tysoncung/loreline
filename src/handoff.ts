@@ -258,9 +258,19 @@ export async function buildHandoffPlan(options: BuildHandoffPlanOptions): Promis
   };
 }
 
+// Attaches a review-driven severity boost only to the finding-based risk
+// whose FINDING_CATEGORY mapping matches `category` (at most one such risk
+// per category in practice, since risk.id equals the finding id). A
+// concentration risk's `recommendedTopics` always includes "ownership" as a
+// recommendation to act on, not as a claim that the concentration itself
+// was caused by a stale or disputed review, so concentration risks
+// (identifiable by having `area` set) never receive this boost even when
+// their topics happen to include the affected category. When no matching
+// finding risk exists, the boost is skipped entirely: it never creates a
+// risk of its own.
 function boostByCategory(risks: HandoffRisk[], category: string, points: number, factor: string): void {
   for (const risk of risks) {
-    if (risk.recommendedTopics.includes(category)) {
+    if (risk.area === undefined && risk.recommendedTopics.includes(category)) {
       risk.severity += points;
       risk.factors.push(factor);
     }
@@ -268,14 +278,26 @@ function boostByCategory(risks: HandoffRisk[], category: string, points: number,
 }
 
 function daysUntil(dateOnly: string, now: Date): number {
-  if (!DATE_ONLY_PATTERN.test(dateOnly)) {
-    throw new Error(`--date must be in YYYY-MM-DD format, got "${dateOnly}".`);
+  if (!isValidDateOnly(dateOnly)) {
+    throw new Error(`--date must be a valid YYYY-MM-DD calendar date, got "${dateOnly}".`);
   }
   const target = Date.parse(`${dateOnly}T00:00:00.000Z`);
-  if (Number.isNaN(target)) {
-    throw new Error(`--date must be a valid calendar date, got "${dateOnly}".`);
-  }
   return Math.ceil((target - now.getTime()) / DAY_MS);
+}
+
+// The regex alone accepts calendar-invalid dates like "2026-02-30": Date.parse
+// silently rolls those over to a valid nearby date (e.g. 2026-03-02) instead
+// of failing, so the round trip back through toISOString must reproduce the
+// exact input to confirm it named a real calendar day.
+function isValidDateOnly(value: string): boolean {
+  if (!DATE_ONLY_PATTERN.test(value)) {
+    return false;
+  }
+  const target = Date.parse(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(target)) {
+    return false;
+  }
+  return new Date(target).toISOString().slice(0, 10) === value;
 }
 
 async function loadOptionalArtifact<T>(
