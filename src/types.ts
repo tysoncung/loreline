@@ -102,6 +102,18 @@ export interface KnowledgeEntry {
   review?: KnowledgeEntryReview;
 }
 
+export interface KnowledgeContextImport {
+  sourceId: string;
+  adapter: string;
+  title: string;
+  path: string;
+  fingerprint: string;
+  importedAt: string;
+  author?: string;
+  updatedAt?: string;
+  link?: string;
+}
+
 export interface KnowledgeContext {
   schemaVersion: 1 | 2;
   generatedAt: string;
@@ -118,6 +130,7 @@ export interface KnowledgeContext {
     interviewee: string;
     generatedAt: string;
   }>;
+  imports?: KnowledgeContextImport[];
 }
 
 export interface VerificationIssue {

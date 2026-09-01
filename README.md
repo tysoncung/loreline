@@ -240,6 +240,30 @@ loreline verify --require-approval
 
 `--require-approval` extends verification with an approval-completeness check against `.loreline/context.json`: any compiled entry without a current, approved review is an error; a stale approval (the answer changed since it was reviewed) is a warning; and an approved review past its `--due` date is a warning. Run `loreline compile` before verifying with `--require-approval`, or verification reports a single error asking for it.
 
+### Import and export adapters
+
+```bash
+loreline import --adapter markdown --source ./docs --yes
+loreline export --adapter markdown --dest ./exported-context --yes
+```
+
+Adapters move knowledge between Loreline and an external document collection. Only one adapter ships today: `markdown`. `loreline import --adapter <name> ...` and `loreline export --adapter <name> ...` reject an unknown adapter with an error listing the available ones.
+
+**Import (`loreline import --adapter markdown --source <directory>`)** walks `<directory>` for `.md`/`.markdown` files and records them in `.loreline/imports.json` (schema version 1). For each file, the title comes from frontmatter `title` or the first `#` heading (falling back to the filename), and `author`/`updated`/`link` frontmatter fields are captured when present. Every document is fingerprinted with sha256 so re-running import is safe:
+
+- A file not seen before is **new**.
+- A file whose fingerprint matches the log is **unchanged** and left as-is.
+- A file whose fingerprint differs from the log is **changed** and re-imported with a fresh `importedAt`.
+- A log entry whose stored fingerprint does not match the sha256 of its own stored content (i.e. `.loreline/imports.json` was hand-edited) is a **conflict**: it is reported and never overwritten by import.
+
+**Import is a dry run by default.** Without `--yes`, `loreline import` prints the plan (new/changed/unchanged counts and file lists, plus any conflicts) and writes nothing. Pass `--yes` to actually merge the plan into `.loreline/imports.json`.
+
+**Compile** (`loreline compile`) reads `.loreline/imports.json` when it exists and surfaces each imported document's metadata (title, path or link, adapter, `importedAt`) under a `## Imported references` section in `context.md` and an `imports` array in `context.json`. The imported document's full content is never embedded in the compiled context, only its provenance.
+
+**Export (`loreline export --adapter markdown --dest <directory>`)** requires a compiled `.loreline/context.json` (run `loreline compile` first) and writes one `<category>.md` file per entry category into `<directory>`, each entry rendered with its question, answer, and a provenance line (interviewee, generated date, source interview file, and review status when the entry has one). `<directory>` may be outside the repository; it is created recursively. **Export is also a dry run by default:** without `--yes` it prints the file(s) that would be written and writes nothing. With `--yes`, it writes them; if a destination file already exists, export refuses and names the file unless `--force` is also passed.
+
+Both commands operate entirely on the local filesystem: nothing is sent to a network service, and the only files touched are the ones under `--source`, `.loreline/imports.json`, `.loreline/context.json`, and `--dest`.
+
 ## Configuration
 
 `loreline init` creates:
@@ -314,7 +338,10 @@ Every machine-readable Loreline artifact is validated against a packaged JSON Sc
 - `@tysoncung/loreline/schemas/v2/interview`
 - `@tysoncung/loreline/schemas/v1/session`
 - `@tysoncung/loreline/schemas/v1/context`
+- `@tysoncung/loreline/schemas/v2/context`
 - `@tysoncung/loreline/schemas/v1/verification`
+- `@tysoncung/loreline/schemas/v1/reviews`
+- `@tysoncung/loreline/schemas/v1/imports`
 
 The `schemaVersion` field controls compatibility. Loreline preserves support for all artifacts within the current major schema version. Additive fields require a new schema version because schemas reject unknown properties, and incompatible changes require an explicit migration path. Unsupported versions fail with field-level validation errors instead of being interpreted as current data.
 

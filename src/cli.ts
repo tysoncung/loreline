@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import { plannedExportPaths } from "./adapters/markdown.js";
+import { getAdapter, loadImportLog, saveImportLog, type ImportLog, type ImportPlan } from "./adapters/types.js";
 import { compileWithAi, previewCategories } from "./ai/compiler.js";
 import { initialize, loadConfig, loadRequiredConfig } from "./config.js";
 import { analyzeHistory } from "./history.js";
@@ -54,6 +56,12 @@ async function main(): Promise<void> {
       break;
     case "review":
       await reviewCommand(args);
+      break;
+    case "import":
+      await importCommand(args);
+      break;
+    case "export":
+      await exportCommand(args);
       break;
     default:
       throw new Error(`Unknown command "${command}". Run "loreline help" for usage.`);
@@ -425,6 +433,120 @@ async function reviewCommand(args: string[]): Promise<void> {
   console.log(`Reviews: ${result.reviewsPath}`);
 }
 
+async function importCommand(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      path: { type: "string", short: "p", default: "." },
+      adapter: { type: "string" },
+      source: { type: "string" },
+      yes: { type: "boolean", default: false },
+    },
+  });
+  if (!values.adapter) {
+    throw new Error("--adapter is required.");
+  }
+  if (!values.source) {
+    throw new Error("--source is required.");
+  }
+
+  const root = path.resolve(values.path);
+  const config = await loadRequiredConfig(root);
+  const outputDirectory = path.join(root, config.output.directory);
+  const source = path.resolve(values.source);
+  const adapter = getAdapter(values.adapter);
+  const existing = await loadImportLog(outputDirectory);
+
+  const plan = await adapter.plan(source, existing);
+  printImportPlan(plan);
+
+  if (!values.yes) {
+    console.log("Dry run: no changes written. Pass --yes to import.");
+    return;
+  }
+
+  const documents = await adapter.import(source, existing);
+  const log: ImportLog = { schemaVersion: 1, project: config.project.name, documents };
+  const importsPath = await saveImportLog(outputDirectory, log);
+  console.log(
+    `Imported ${plan.newDocuments.length} new and ${plan.changed.length} changed document(s); ` +
+      `${plan.conflicts.length} conflict(s) left untouched.`,
+  );
+  console.log(`Import log: ${importsPath}`);
+}
+
+function printImportPlan(plan: ImportPlan): void {
+  console.log(`New: ${plan.newDocuments.length}`);
+  for (const file of plan.newDocuments) {
+    console.log(`  + ${file}`);
+  }
+  console.log(`Changed: ${plan.changed.length}`);
+  for (const file of plan.changed) {
+    console.log(`  ~ ${file}`);
+  }
+  console.log(`Unchanged: ${plan.unchanged.length}`);
+  console.log(`Conflicts: ${plan.conflicts.length}`);
+  for (const conflict of plan.conflicts) {
+    console.log(`  ! ${conflict.path}: ${conflict.reason}`);
+  }
+}
+
+async function exportCommand(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      path: { type: "string", short: "p", default: "." },
+      adapter: { type: "string" },
+      dest: { type: "string" },
+      yes: { type: "boolean", default: false },
+      force: { type: "boolean", default: false },
+    },
+  });
+  if (!values.adapter) {
+    throw new Error("--adapter is required.");
+  }
+  if (!values.dest) {
+    throw new Error("--dest is required.");
+  }
+
+  const root = path.resolve(values.path);
+  const config = await loadRequiredConfig(root);
+  const outputDirectory = path.join(root, config.output.directory);
+  const contextPath = path.join(outputDirectory, "context.json");
+  let context: KnowledgeContext;
+  try {
+    const value: unknown = JSON.parse(await readFile(contextPath, "utf8"));
+    context = await validateArtifact<KnowledgeContext>("context", value, contextPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        `No compiled knowledge context found at ${contextPath}. Run "loreline compile" first.`,
+      );
+    }
+    throw error;
+  }
+
+  const destination = path.resolve(values.dest);
+  const adapter = getAdapter(values.adapter);
+  const planned = plannedExportPaths(context, destination);
+
+  console.log(`Would write ${planned.length} file(s):`);
+  for (const file of planned) {
+    console.log(`  ${file}`);
+  }
+
+  if (!values.yes) {
+    console.log("Dry run: no files written. Pass --yes to export.");
+    return;
+  }
+
+  const files = await adapter.export(context, destination, { force: values.force });
+  console.log(`Wrote ${files.length} file(s):`);
+  for (const file of files) {
+    console.log(`  ${file}`);
+  }
+}
+
 // Picks up to `limit` distinct files cited by non-pass findings, honoring
 // `scope.findings` when present (an explicit allow-list of finding ids).
 // `scope.categories` has no direct analogue on a Finding (categories exist
@@ -485,6 +607,8 @@ Usage:
   loreline compile [...] [--ai --provider <name> --model <name> --base-url <url>] [--yes]
   loreline verify [--path <directory>] [--max-age <days>] [--json] [--require-approval]
   loreline review --entry <id> --approve|--dispute --owner <name> [--reviewer <name> ...] [--reason <text>] [--due <YYYY-MM-DD>]
+  loreline import --adapter markdown --source <directory> [--path <directory>] [--yes]
+  loreline export --adapter markdown --dest <directory> [--path <directory>] [--yes] [--force]
 
 Commands:
   init       Create loreline.yaml and the knowledge workspace
@@ -502,6 +626,13 @@ Commands:
              after previewing and confirming what would be sent
   verify     Check knowledge records for completeness and freshness
   review     Record human approval or dispute for a compiled knowledge entry
+  import     Import external documents into .loreline/imports.json via an
+             adapter (currently: markdown). Without --yes, prints the import
+             plan (new/changed/unchanged/conflicts) and writes nothing.
+  export     Export compiled context into a destination directory via an
+             adapter (currently: markdown). Without --yes, prints the file
+             list and writes nothing; --force allows overwriting existing
+             files.
 `);
 }
 

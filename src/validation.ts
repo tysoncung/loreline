@@ -13,7 +13,8 @@ export type ArtifactKind =
   | "session"
   | "context"
   | "verification"
-  | "reviews";
+  | "reviews"
+  | "imports";
 
 // Only lists versions for kinds that exist today. Later tasks extend both the
 // ArtifactKind union and these maps when they introduce new schema versions.
@@ -25,6 +26,7 @@ export const SUPPORTED_VERSIONS: Record<ArtifactKind, number[]> = {
   context: [1, 2],
   verification: [1],
   reviews: [1],
+  imports: [1],
 };
 
 export const LATEST_VERSION: Record<ArtifactKind, number> = {
@@ -35,6 +37,7 @@ export const LATEST_VERSION: Record<ArtifactKind, number> = {
   context: 2,
   verification: 1,
   reviews: 1,
+  imports: 1,
 };
 
 const validators = new Map<string, Promise<ValidateFunction>>();

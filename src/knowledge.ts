@@ -1,10 +1,12 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loadImportLog, type ImportLog } from "./adapters/types.js";
 import { checkCitation } from "./citations.js";
 import { effectiveReview, fingerprintAnswer, loadReviews, type ReviewEntry, type ReviewLog } from "./review.js";
 import type {
   InterviewRecord,
   KnowledgeContext,
+  KnowledgeContextImport,
   KnowledgeEntry,
   KnowledgeEntryReview,
   LorelineConfig,
@@ -87,9 +89,10 @@ export async function compileKnowledge(
   }
 
   const reviewLog = await loadReviews(outputDirectory);
+  const importLog = await loadImportLog(outputDirectory);
   const markdownPath = path.join(outputDirectory, "context.md");
   const jsonPath = path.join(outputDirectory, "context.json");
-  const context = buildContext(config, sources, reviewLog);
+  const context = buildContext(config, sources, reviewLog, importLog);
   await validateArtifact<KnowledgeContext>("context", context, jsonPath);
   await mkdir(outputDirectory, { recursive: true });
   await Promise.all([
@@ -365,6 +368,7 @@ function buildContext(
   config: LorelineConfig,
   sources: InterviewSource[],
   reviewLog: ReviewLog | undefined,
+  importLog: ImportLog | undefined,
 ): KnowledgeContext {
   const entries: KnowledgeEntry[] = sources.flatMap((source) =>
     source.record.answers
@@ -385,6 +389,17 @@ function buildContext(
         };
       }),
   );
+  const imports: KnowledgeContextImport[] = (importLog?.documents ?? []).map((doc) => ({
+    sourceId: doc.sourceId,
+    adapter: doc.adapter,
+    title: doc.title,
+    path: doc.path,
+    fingerprint: doc.fingerprint,
+    importedAt: doc.importedAt,
+    ...(doc.author ? { author: doc.author } : {}),
+    ...(doc.updatedAt ? { updatedAt: doc.updatedAt } : {}),
+    ...(doc.link ? { link: doc.link } : {}),
+  }));
   return {
     schemaVersion: 2,
     generatedAt: new Date().toISOString(),
@@ -405,6 +420,7 @@ function buildContext(
       interviewee: source.record.interviewee,
       generatedAt: source.record.generatedAt,
     })),
+    ...(imports.length > 0 ? { imports } : {}),
   };
 }
 
@@ -482,5 +498,13 @@ ${context.unresolved.length > 0
 ## Sources
 
 ${context.sources.map((source) => `- \`${source.file}\` (${source.interviewee}, ${source.generatedAt})`).join("\n")}
+
+## Imported references
+
+${context.imports && context.imports.length > 0
+    ? context.imports
+        .map((doc) => `- ${doc.title} (${doc.adapter}) - \`${doc.link ?? doc.path}\`, imported ${doc.importedAt}`)
+        .join("\n")
+    : "No imported references."}
 `;
 }
