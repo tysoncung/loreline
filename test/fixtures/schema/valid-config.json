@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "payments",
+    "owner": "platform-team"
+  },
+  "scan": {
+    "include": ["**/*"],
+    "exclude": [".git", "node_modules"],
+    "maxFiles": 10000
+  },
+  "output": {
+    "directory": ".loreline"
+  }
+}

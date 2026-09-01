@@ -58,6 +58,36 @@ export interface InterviewRecord {
   unanswered: string[];
 }
 
+export interface KnowledgeEntry {
+  id: string;
+  category: string;
+  question: string;
+  answer: string;
+  source: {
+    file: string;
+    interviewee: string;
+    generatedAt: string;
+  };
+}
+
+export interface KnowledgeContext {
+  schemaVersion: 1;
+  generatedAt: string;
+  project: string;
+  owner: string;
+  entries: KnowledgeEntry[];
+  unresolved: Array<{
+    id: string;
+    question: string;
+    sourceFile: string;
+  }>;
+  sources: Array<{
+    file: string;
+    interviewee: string;
+    generatedAt: string;
+  }>;
+}
+
 export interface VerificationIssue {
   file: string;
   severity: "error" | "warning";

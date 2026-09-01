@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Finding, LorelineConfig, ReadinessReport } from "./types.js";
+import { validateArtifact } from "./validation.js";
 
 const DOCUMENT_PATTERN = /\.(?:md|mdx|txt|rst|adoc)$/i;
 
@@ -41,6 +42,7 @@ export async function writeReport(
   await mkdir(outputDirectory, { recursive: true });
   const jsonPath = path.join(outputDirectory, "readiness.json");
   const markdownPath = path.join(outputDirectory, "readiness.md");
+  await validateArtifact<ReadinessReport>("readiness", report, jsonPath);
   await Promise.all([
     writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`),
     writeFile(markdownPath, renderMarkdownReport(report)),

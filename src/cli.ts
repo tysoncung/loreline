@@ -12,6 +12,7 @@ import {
 } from "./knowledge.js";
 import { scanRepository, writeReport } from "./scanner.js";
 import type { ReadinessReport } from "./types.js";
+import { validateArtifact } from "./validation.js";
 
 const VERSION = "0.2.0";
 
@@ -108,7 +109,8 @@ async function interviewCommand(args: string[]): Promise<void> {
   const reportPath = path.join(root, config.output.directory, "readiness.json");
   let report: ReadinessReport;
   try {
-    report = JSON.parse(await readFile(reportPath, "utf8")) as ReadinessReport;
+    const value: unknown = JSON.parse(await readFile(reportPath, "utf8"));
+    report = await validateArtifact<ReadinessReport>("readiness", value, reportPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error;
@@ -140,6 +142,7 @@ async function compileCommand(args: string[]): Promise<void> {
   const result = await compileKnowledge(config, path.join(root, config.output.directory));
   console.log(`Compiled ${result.answers} answers from ${result.records} interview record(s).`);
   console.log(`AI context: ${result.markdownPath}`);
+  console.log(`Structured context: ${result.jsonPath}`);
 }
 
 async function verifyCommand(args: string[]): Promise<void> {

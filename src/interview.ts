@@ -8,6 +8,7 @@ import type {
   LorelineConfig,
   ReadinessReport,
 } from "./types.js";
+import { validateArtifact } from "./validation.js";
 
 const BASE_QUESTIONS: InterviewQuestion[] = [
   {
@@ -142,6 +143,7 @@ export async function writeInterview(
   const baseName = `${stamp}-${slug(record.interviewee)}`;
   const jsonPath = path.join(interviewsDirectory, `${baseName}.json`);
   const markdownPath = path.join(interviewsDirectory, `${baseName}.md`);
+  await validateArtifact<InterviewRecord>("interview", record, jsonPath);
   await Promise.all([
     writeFile(jsonPath, `${JSON.stringify(record, null, 2)}\n`),
     writeFile(markdownPath, renderInterview(record)),

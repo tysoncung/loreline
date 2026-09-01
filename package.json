@@ -8,9 +8,18 @@
   },
   "files": [
     "dist",
+    "schemas",
     "README.md",
     "LICENSE"
   ],
+  "exports": {
+    "./schemas/v1/config": "./schemas/v1/config.schema.json",
+    "./schemas/v1/readiness": "./schemas/v1/readiness.schema.json",
+    "./schemas/v1/interview": "./schemas/v1/interview.schema.json",
+    "./schemas/v1/context": "./schemas/v1/context.schema.json",
+    "./schemas/v1/verification": "./schemas/v1/verification.schema.json",
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "node --import tsx src/cli.ts",
@@ -39,6 +48,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
     "yaml": "^2.8.1"
   },
   "devDependencies": {

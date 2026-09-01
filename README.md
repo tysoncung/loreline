@@ -78,7 +78,7 @@ Knowledge records are stored as both Markdown and structured JSON under `.loreli
 loreline compile
 ```
 
-Loreline compiles answered interview questions into `.loreline/context.md`, grouped by topic with a citation back to every source record. The output remains explicitly reviewable rather than presenting interview statements as independently verified facts.
+Loreline compiles answered interview questions into `.loreline/context.md` and `.loreline/context.json`, grouped by topic with a citation back to every source record. The output remains explicitly reviewable rather than presenting interview statements as independently verified facts.
 
 ### Verify knowledge quality
 
@@ -111,6 +111,18 @@ scan:
 output:
   directory: .loreline
 ```
+
+## Artifact schemas and compatibility
+
+Every machine-readable Loreline artifact is validated against a packaged JSON Schema:
+
+- `@tysoncung/loreline/schemas/v1/config`
+- `@tysoncung/loreline/schemas/v1/readiness`
+- `@tysoncung/loreline/schemas/v1/interview`
+- `@tysoncung/loreline/schemas/v1/context`
+- `@tysoncung/loreline/schemas/v1/verification`
+
+The `schemaVersion` field controls compatibility. Loreline preserves support for all artifacts within the current major schema version. Additive fields require a new schema version because schemas reject unknown properties, and incompatible changes require an explicit migration path. Unsupported versions fail with field-level validation errors instead of being interpreted as current data.
 
 ## Principles
 

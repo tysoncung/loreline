@@ -2,6 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import type { LorelineConfig } from "./types.js";
+import { validateArtifact } from "./validation.js";
 
 export const CONFIG_FILE = "loreline.yaml";
 
@@ -44,7 +45,7 @@ export async function loadConfig(root: string): Promise<LorelineConfig> {
   const configPath = path.join(root, CONFIG_FILE);
   try {
     const parsed: unknown = YAML.parse(await readFile(configPath, "utf8"));
-    return validateConfig(parsed, configPath);
+    return validateArtifact<LorelineConfig>("config", parsed, configPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return defaultConfig(root);
@@ -65,30 +66,4 @@ export async function loadRequiredConfig(root: string): Promise<LorelineConfig> 
     throw error;
   }
   return loadConfig(root);
-}
-
-function validateConfig(value: unknown, configPath: string): LorelineConfig {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("project" in value) ||
-    !("scan" in value) ||
-    !("output" in value)
-  ) {
-    throw new Error(`Invalid Loreline configuration: ${configPath}`);
-  }
-
-  const candidate = value as Partial<LorelineConfig>;
-  if (
-    candidate.schemaVersion !== 1 ||
-    typeof candidate.project?.name !== "string" ||
-    typeof candidate.project.owner !== "string" ||
-    !Array.isArray(candidate.scan?.include) ||
-    !Array.isArray(candidate.scan.exclude) ||
-    typeof candidate.scan.maxFiles !== "number" ||
-    typeof candidate.output?.directory !== "string"
-  ) {
-    throw new Error(`Invalid Loreline configuration fields: ${configPath}`);
-  }
-  return candidate as LorelineConfig;
 }
