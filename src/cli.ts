@@ -2,6 +2,7 @@
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { initialize, loadConfig, loadRequiredConfig } from "./config.js";
 import { analyzeHistory } from "./history.js";
@@ -12,9 +13,12 @@ import {
   writeVerificationReport,
 } from "./knowledge.js";
 import { scanDocuments } from "./docscan.js";
+import { createProvider, resolveAiSettings } from "./providers/index.js";
+import type { AiProvider } from "./providers/types.js";
 import { applyReview } from "./review.js";
 import { scanRepository, writeReport } from "./scanner.js";
 import { selectInteractively, type InterviewScope } from "./scope.js";
+import { approvedPayload, buildTransmissionPreview, renderTransmissionPreview } from "./transmit.js";
 import type { ReadinessReport } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
@@ -139,6 +143,12 @@ async function interviewCommand(args: string[]): Promise<void> {
       categories: { type: "string" },
       findings: { type: "string" },
       interactive: { type: "boolean", default: false },
+      ai: { type: "boolean", default: false },
+      provider: { type: "string" },
+      model: { type: "string" },
+      "base-url": { type: "string" },
+      "max-followups": { type: "string", default: "2" },
+      yes: { type: "boolean", default: false },
     },
   });
   if (!values.interviewee && !values.resume) {
@@ -176,6 +186,61 @@ async function interviewCommand(args: string[]): Promise<void> {
   const scope: InterviewScope | undefined =
     categories || findings ? { ...(categories ? { categories } : {}), ...(findings ? { findings } : {}) } : undefined;
 
+  let aiContext:
+    | { provider: AiProvider; maxFollowups: number; evidence: Array<{ file: string; excerpt: string }> }
+    | undefined;
+
+  if (values.ai) {
+    const maxFollowups = Number(values["max-followups"]);
+    if (!Number.isInteger(maxFollowups) || maxFollowups < 0) {
+      throw new Error("--max-followups must be a non-negative whole number.");
+    }
+
+    // Resolve settings and construct the provider first, so a
+    // misconfigured provider fails fast before any evidence is read from
+    // disk or previewed.
+    const settings = resolveAiSettings(config, {
+      ...(values.provider ? { provider: values.provider } : {}),
+      ...(values.model ? { model: values.model } : {}),
+      ...(values["base-url"] ? { baseUrl: values["base-url"] } : {}),
+    });
+    const provider = createProvider(settings, process.env);
+
+    const evidenceFiles = selectEvidenceFiles(report, scope, 8);
+    const preview = await buildTransmissionPreview(root, evidenceFiles);
+    console.log(renderTransmissionPreview(preview));
+
+    if (preview.blocked) {
+      throw new Error(
+        "Transmission blocked by high-confidence secret finding(s); redact the affected content or exclude those files, then retry.",
+      );
+    }
+
+    if (!values.yes) {
+      if (!process.stdin.isTTY) {
+        throw new Error(
+          `Refusing to send context to ${settings.provider} without confirmation in a non-interactive terminal; pass --yes to proceed.`,
+        );
+      }
+      const terminal = createInterface({ input: process.stdin, output: process.stdout });
+      let confirmation: string;
+      try {
+        confirmation = await terminal.question(`Send this context to ${settings.provider}? [y/N] `);
+      } finally {
+        terminal.close();
+      }
+      if (confirmation.trim().toLowerCase() !== "y") {
+        throw new Error("Aborted: transmission to the AI provider was not confirmed.");
+      }
+    }
+
+    aiContext = {
+      provider,
+      maxFollowups,
+      evidence: approvedPayload(preview),
+    };
+  }
+
   const record = await conductInterview({
     config,
     report,
@@ -187,6 +252,7 @@ async function interviewCommand(args: string[]): Promise<void> {
     ...(values.resume ? { resume: values.resume } : {}),
     revise: values.revise,
     ...(scope ? { scope } : {}),
+    ...(aiContext ? { ai: aiContext } : {}),
     onSessionStart: (session) => {
       console.log(`Session: ${session.sessionId} (resume with --resume ${session.sessionId})`);
     },
@@ -292,6 +358,32 @@ async function reviewCommand(args: string[]): Promise<void> {
   console.log(`Reviews: ${result.reviewsPath}`);
 }
 
+// Picks up to `limit` distinct files cited by non-pass findings, honoring
+// `scope.findings` when present (an explicit allow-list of finding ids).
+// `scope.categories` has no direct analogue on a Finding (categories exist
+// only on interview questions), so it does not further restrict evidence
+// selection here.
+function selectEvidenceFiles(
+  report: ReadinessReport,
+  scope: InterviewScope | undefined,
+  limit: number,
+): string[] {
+  const findings = report.findings
+    .filter((finding) => finding.status !== "pass")
+    .filter((finding) => !scope?.findings || scope.findings.includes(finding.id));
+
+  const files = new Set<string>();
+  outer: for (const finding of findings) {
+    for (const citation of finding.citations ?? []) {
+      if (files.size >= limit) {
+        break outer;
+      }
+      files.add(citation.file);
+    }
+  }
+  return [...files];
+}
+
 function splitList(value: string): string[] {
   return value
     .split(",")
@@ -320,6 +412,8 @@ Usage:
   loreline interview --interviewee <name> [--path <directory>] [--answers <file>]
   loreline interview --resume <sessionId> [--revise] [--path <directory>] [--answers <file>]
   loreline interview [...] [--categories <list>] [--findings <list>] [--interactive]
+  loreline interview [...] [--ai --provider <name> --model <name> --base-url <url>]
+  loreline interview [...] [--ai [--max-followups <n>] [--yes]]
   loreline compile [--path <directory>]
   loreline verify [--path <directory>] [--max-age <days>] [--json] [--require-approval]
   loreline review --entry <id> --approve|--dispute --owner <name> [--reviewer <name> ...] [--reason <text>] [--due <YYYY-MM-DD>]
@@ -332,6 +426,8 @@ Commands:
              structure, ownership, freshness, linkage, terminology,
              operational docs) and skips git history analysis
   interview  Run an adaptive knowledge-transfer interview
+             --ai adds AI-generated questions and follow-ups, after previewing
+             and confirming what evidence would be sent to the provider
   compile    Compile interview records into reviewable AI context
   verify     Check knowledge records for completeness and freshness
   review     Record human approval or dispute for a compiled knowledge entry

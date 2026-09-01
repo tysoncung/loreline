@@ -2,6 +2,8 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { detectContradictions, generateFollowup, generateQuestions, PROMPT_VERSION } from "./ai/interviewer.js";
+import type { AiProvider } from "./providers/types.js";
 import {
   createSession,
   loadSession,
@@ -134,8 +136,14 @@ export async function conductInterview(options: {
   resume?: string;
   revise?: boolean;
   scope?: InterviewScope;
+  ai?: {
+    provider: AiProvider;
+    maxFollowups: number;
+    evidence: Array<{ file: string; excerpt: string }>;
+  };
   onSessionStart?: (session: InterviewSession) => void;
 }): Promise<InterviewRecord> {
+  const ai = options.ai;
   const suppliedAnswers = options.answersPath
     ? await loadSuppliedAnswers(options.answersPath)
     : undefined;
@@ -146,12 +154,20 @@ export async function conductInterview(options: {
     if (options.resume) {
       session = await loadSession(options.outputDirectory, options.resume);
     } else {
+      const deterministicQuestions = buildInterviewQuestions(options.report, options.scope);
+      // AI question generation happens before the session exists, so a
+      // failure here (invalid JSON that survives the retry) never leaves a
+      // half-started, unresumable session on disk: there is simply no
+      // session yet.
+      const aiQuestions = ai
+        ? await generateQuestions({ provider: ai.provider, report: options.report, evidence: ai.evidence })
+        : [];
       session = createSession({
         project: options.config.project.name,
         interviewee: requireInterviewee(options.interviewee),
         interviewer: options.interviewer,
         sourceReport: options.reportPath,
-        questions: buildInterviewQuestions(options.report, options.scope),
+        questions: [...deterministicQuestions, ...aiQuestions],
         ...(options.scope ? { scope: options.scope } : {}),
       });
       // Two interviews for the same interviewee started within the same
@@ -165,7 +181,11 @@ export async function conductInterview(options: {
     // leaves a resumable session on disk.
     await saveSession(options.outputDirectory, session);
 
-    for (const question of session.questions) {
+    const followupBudget = ai?.maxFollowups ?? 0;
+    let followupsUsed = 0;
+
+    for (let index = 0; index < session.questions.length; index += 1) {
+      const question = session.questions[index]!;
       const existing = session.answers.find((entry) => entry.id === question.id);
       const shouldPrompt = !existing || options.revise === true;
       if (!shouldPrompt) {
@@ -185,6 +205,54 @@ export async function conductInterview(options: {
       // Persist after every accepted answer so interruption or a thrown
       // provider error mid-interview leaves the open session on disk.
       await saveSession(options.outputDirectory, session);
+
+      const alreadyHasFollowup = session.questions.some(
+        (candidate) => candidate.id === `${question.id}-followup`,
+      );
+      if (
+        ai &&
+        followupsUsed < followupBudget &&
+        !question.id.endsWith("-followup") &&
+        !alreadyHasFollowup &&
+        trimmed.length < 60
+      ) {
+        const followup = await generateFollowup(ai.provider, question, trimmed);
+        if (followup) {
+          followupsUsed += 1;
+          // Insert right after the question it follows up on, so it is
+          // asked next.
+          session.questions.splice(index + 1, 0, followup);
+          await saveSession(options.outputDirectory, session);
+        }
+      }
+    }
+
+    if (ai && !session.questions.some((question) => question.id.startsWith("contradiction-"))) {
+      const answeredPairs = session.questions
+        .map((question) => {
+          const entry = session.answers.find((answer) => answer.id === question.id);
+          return entry && entry.answer.trim() ? { question: question.question, answer: entry.answer } : undefined;
+        })
+        .filter((value): value is { question: string; answer: string } => value !== undefined);
+
+      const contradictions = await detectContradictions(ai.provider, answeredPairs);
+      if (contradictions.length > 0) {
+        contradictions.forEach((description, contradictionIndex) => {
+          session.questions.push({
+            id: `contradiction-${contradictionIndex + 1}`,
+            category: "contradiction",
+            question: description,
+            reason: "Possible contradiction between answers.",
+            origin: {
+              type: "ai",
+              provider: ai.provider.name,
+              model: ai.provider.model,
+              promptVersion: PROMPT_VERSION,
+            },
+          });
+        });
+        await saveSession(options.outputDirectory, session);
+      }
     }
 
     session.status = "completed";

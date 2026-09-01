@@ -155,6 +155,31 @@ loreline interview --interviewee "Alex Chen" --findings architecture,operations
 
 An interview run with a scope records it on the interview record (schema version 2) and on the session, so resuming keeps the same scope.
 
+#### AI-assisted interviews
+
+```bash
+loreline interview --interviewee "Alex Chen" --ai --provider ollama --model llama3
+```
+
+`--ai` adds AI-generated questions and inline follow-ups to the deterministic interview:
+
+1. Loreline resolves the AI provider and model first (from `--provider`/`--model`/`--base-url` flags or the config `ai` block), failing fast on a bad configuration before touching any file content.
+2. It picks up to 8 files cited by the readiness findings that did not pass (honoring `--categories`/`--findings` scope), builds a transmission preview, and prints it. A high-confidence secret finding blocks the run entirely; redact or exclude the file and retry.
+3. Unless `--yes` is passed, it asks for confirmation on an interactive terminal (`Send this context to <provider>? [y/N]`) before sending anything; a non-interactive run without `--yes` refuses instead of guessing.
+4. Only the approved, redacted excerpts are sent. The model proposes up to 5 extra questions, which are appended to the deterministic set.
+5. Any answer under 60 characters can trigger one AI-generated follow-up question, asked immediately after the question it follows up on (bounded by `--max-followups`, default 2 per interview).
+6. After every question is answered, Loreline asks the model to flag possible contradictions between answers; each one is recorded as an unanswered question in category `contradiction` for a human to resolve, never auto-resolved.
+
+Every AI-generated question and follow-up carries an `origin` field (`{ type: "ai", provider, model, promptVersion }`) in the session and the interview record, so it is always clear which questions came from a person and which came from a model. Without `--ai`, no provider is ever constructed and the interview behaves exactly as before.
+
+A local model needs no API key and nothing leaves the machine except to `localhost`:
+
+```bash
+loreline interview --interviewee "Alex Chen" --ai --provider ollama --model llama3 --yes
+```
+
+`--yes` skips the interactive confirmation, which is useful for CI or scripted demos once the transmission preview has already been reviewed once.
+
 ### Compile reusable AI context
 
 ```bash
@@ -232,7 +257,7 @@ ai:
 | `ollama`    | `http://localhost:11434`          | none (local server)                       |
 | `fake`      | none (scripted, offline)          | none; responses come from `LORELINE_FAKE_RESPONSES` |
 
-A command's `--provider`, `--model`, and `--baseUrl` flags override the config `ai` block field by field. Credentials are never part of `loreline.yaml`; the config schema has no key field, so nothing secret can end up committed to the repository.
+A command's `--provider`, `--model`, and `--base-url` flags override the config `ai` block field by field. Credentials are never part of `loreline.yaml`; the config schema has no key field, so nothing secret can end up committed to the repository.
 
 ### Transmission safety
 

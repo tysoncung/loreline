@@ -59,6 +59,12 @@ export interface InterviewQuestion {
   question: string;
   reason: string;
   sourceFinding?: string;
+  origin?: {
+    type: "ai";
+    provider: string;
+    model: string;
+    promptVersion: string;
+  };
 }
 
 export interface InterviewRecord {
