@@ -84,6 +84,26 @@ Skip history analysis entirely with `--no-history`. When history is unavailable 
 loreline scan --no-history
 ```
 
+#### Scanning a document collection
+
+`--mode documents` (default is `--mode repository`) assesses a documentation set instead of the whole project, judging documents on Markdown, MDX, plain text, reStructuredText, and AsciiDoc files (`.md`, `.mdx`, `.txt`, `.rst`, `.adoc`) discovered under `loreline.yaml`'s `scan.include`/`scan.exclude`:
+
+```bash
+loreline scan --mode documents --path docs
+```
+
+It checks for:
+
+- Purpose: each document opens with an H1 heading or a frontmatter `title` within its first 5 lines
+- Ownership: frontmatter `owner:` or `author:`
+- Freshness: frontmatter `updated:`/`date:` (or, failing that, file modification time) within the last 365 days
+- Structure: a `README.md` or `index.md` at the collection root
+- Linkage: every document is reachable via a relative Markdown link from another document (root `README.md`/`index.md` count as entry points by default)
+- Terminology: a glossary, terminology, or definitions document exists
+- Operations: at least one runbook, procedure, process, policy, or escalation document exists with real content
+
+Frontmatter is a leading `---`-delimited YAML block; a document with no such block, or one that fails to parse, is treated as having no frontmatter rather than failing the scan. Files that cannot be decoded as UTF-8 are listed in the report's `unreadable` field and excluded from every finding's coverage math and from `filesScanned`. Document mode never analyzes git history, even without `--no-history`.
+
 ### Capture knowledge before it leaves
 
 ```bash
@@ -217,7 +237,7 @@ The `schemaVersion` field controls compatibility. Loreline preserves support for
 
 ## Status
 
-Loreline is an early prototype. It supports repository readiness scans (including git history informed knowledge-concentration checks), adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes document collections, approval workflows, and pluggable AI providers.
+Loreline is an early prototype. It supports repository and document-collection readiness scans (including git history informed knowledge-concentration checks in repository mode), adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes approval workflows and pluggable AI providers.
 
 The readiness score's baseline shifted with the addition of the `knowledge-concentration` finding: total finding weight moved from 100 to 110, so scores from before this change are not directly comparable to scores after it. Re-run `loreline scan` to get a current baseline.
 

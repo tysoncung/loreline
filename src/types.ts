@@ -28,6 +28,8 @@ export interface ReadinessReport {
   scope?: ScanScope;
   findings: Finding[];
   history?: HistoryInsights;
+  mode?: "repository" | "documents";
+  unreadable?: string[];
 }
 
 export interface LorelineConfig {

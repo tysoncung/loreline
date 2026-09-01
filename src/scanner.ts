@@ -59,6 +59,7 @@ export async function scanRepository(
       filesScanned: inventory.files.length,
     },
     ...(narrowed ? { scope } : {}),
+    mode: "repository",
     findings,
     ...(history.available ? { history } : {}),
   };

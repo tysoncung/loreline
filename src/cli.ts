@@ -11,6 +11,7 @@ import {
   verifyKnowledge,
   writeVerificationReport,
 } from "./knowledge.js";
+import { scanDocuments } from "./docscan.js";
 import { applyReview } from "./review.js";
 import { scanRepository, writeReport } from "./scanner.js";
 import { selectInteractively, type InterviewScope } from "./scope.js";
@@ -76,22 +77,36 @@ async function scanCommand(args: string[]): Promise<void> {
       exclude: { type: "string", multiple: true, default: [] },
       "no-history": { type: "boolean", default: false },
       "exclude-identity": { type: "string", multiple: true, default: [] },
+      mode: { type: "string", default: "repository" },
     },
   });
+  if (values.mode !== "repository" && values.mode !== "documents") {
+    throw new Error('--mode must be "repository" or "documents".');
+  }
+
   const root = path.resolve(values.path);
   const config = await loadConfig(root);
-  const history = values["no-history"]
-    ? undefined
-    : await analyzeHistory(root, { excludeIdentities: values["exclude-identity"] });
-  const report = await scanRepository(
-    root,
-    config,
-    {
-      include: values.include,
-      exclude: values.exclude,
-    },
-    history ? { history } : undefined,
-  );
+
+  let report: ReadinessReport;
+  if (values.mode === "documents") {
+    // Document mode inspects a documentation collection rather than the
+    // whole repository, so git history analysis (which characterizes
+    // ownership across source files) does not apply and is skipped entirely.
+    report = await scanDocuments(root, config);
+  } else {
+    const history = values["no-history"]
+      ? undefined
+      : await analyzeHistory(root, { excludeIdentities: values["exclude-identity"] });
+    report = await scanRepository(
+      root,
+      config,
+      {
+        include: values.include,
+        exclude: values.exclude,
+      },
+      history ? { history } : undefined,
+    );
+  }
   const output = await writeReport(report, path.join(root, config.output.directory));
 
   if (values.json) {
@@ -301,6 +316,7 @@ Usage:
   loreline init [--path <directory>]
   loreline scan [--path <directory>] [--json] [--fail-under <score>] [--include <glob>] [--exclude <glob>]
   loreline scan [...] [--no-history] [--exclude-identity <name>]
+  loreline scan [...] [--mode repository|documents]
   loreline interview --interviewee <name> [--path <directory>] [--answers <file>]
   loreline interview --resume <sessionId> [--revise] [--path <directory>] [--answers <file>]
   loreline interview [...] [--categories <list>] [--findings <list>] [--interactive]
@@ -311,6 +327,10 @@ Usage:
 Commands:
   init       Create loreline.yaml and the knowledge workspace
   scan       Assess a repository and write machine-readable readiness reports
+             --mode repository (default) scans the whole project; --mode
+             documents scans a documentation collection (README/index
+             structure, ownership, freshness, linkage, terminology,
+             operational docs) and skips git history analysis
   interview  Run an adaptive knowledge-transfer interview
   compile    Compile interview records into reviewable AI context
   verify     Check knowledge records for completeness and freshness
