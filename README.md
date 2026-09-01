@@ -136,6 +136,10 @@ The `schemaVersion` field controls compatibility. Loreline preserves support for
 
 Loreline is an early prototype. It supports repository readiness scans, adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes document collections, Git history informed questions, approval workflows, and pluggable AI providers.
 
+## Security
+
+Loreline is local-first and does not transmit repository or interview content without explicit user action. See [SECURITY.md](SECURITY.md) for the supported versions, threat model, and how to report a vulnerability privately.
+
 ## License
 
 MIT
