@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { defaultConfig } from "../src/config.js";
-import { conductInterview } from "../src/interview.js";
+import { conductInterview, ensureUniqueSessionId } from "../src/interview.js";
 import {
   createSession,
   loadSession,
@@ -225,6 +225,100 @@ test("a session interrupted after two answers resumes to a completed record with
     const finalSession = await loadSession(outputDirectory, session.sessionId);
     assert.equal(finalSession.status, "completed");
     assert.equal(finalSession.answers.length, 3);
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("ensureUniqueSessionId returns the id unchanged when free, and appends -2/-3 once taken", async () => {
+  const dir = await tempRoot();
+  try {
+    const outputDirectory = path.join(dir, ".loreline");
+
+    assert.equal(
+      await ensureUniqueSessionId(outputDirectory, "20260901090000-alex"),
+      "20260901090000-alex",
+    );
+
+    await mkdir(path.join(outputDirectory, "sessions"), { recursive: true });
+    await writeFile(path.join(outputDirectory, "sessions", "20260901090000-alex.json"), "{}");
+    assert.equal(
+      await ensureUniqueSessionId(outputDirectory, "20260901090000-alex"),
+      "20260901090000-alex-2",
+    );
+
+    await writeFile(path.join(outputDirectory, "sessions", "20260901090000-alex-2.json"), "{}");
+    assert.equal(
+      await ensureUniqueSessionId(outputDirectory, "20260901090000-alex"),
+      "20260901090000-alex-3",
+    );
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("two sessions created for the same interviewee in the same second get distinct ids and neither overwrites the other", async () => {
+  const dir = await tempRoot();
+  try {
+    const outputDirectory = path.join(dir, ".loreline");
+    const config = defaultConfig(dir);
+    config.project.name = "example";
+
+    const answersPathA = path.join(dir, "answers-a.json");
+    await writeFile(answersPathA, JSON.stringify({ "hidden-context": "Session A answer" }));
+    const answersPathB = path.join(dir, "answers-b.json");
+    await writeFile(answersPathB, JSON.stringify({ "hidden-context": "Session B answer" }));
+
+    // Two independent "new interview" runs for the same interviewee, started
+    // back to back (in practice within the same second): each calls
+    // createSession internally, which without disambiguation would produce
+    // the same sessionId and the second save would clobber the first.
+    const recordA = await conductInterview({
+      config,
+      report: report(),
+      reportPath: ".loreline/readiness.json",
+      interviewee: "Alex",
+      interviewer: "Loreline",
+      answersPath: answersPathA,
+      outputDirectory,
+    });
+    const recordB = await conductInterview({
+      config,
+      report: report(),
+      reportPath: ".loreline/readiness.json",
+      interviewee: "Alex",
+      interviewer: "Loreline",
+      answersPath: answersPathB,
+      outputDirectory,
+    });
+
+    const sessionFiles = (await readdir(path.join(outputDirectory, "sessions"))).sort();
+    assert.equal(
+      sessionFiles.length,
+      2,
+      `expected two distinct session files, found: ${sessionFiles.join(", ")}`,
+    );
+
+    const sessions = await Promise.all(
+      sessionFiles.map(async (file) =>
+        JSON.parse(await readFile(path.join(outputDirectory, "sessions", file), "utf8")),
+      ),
+    );
+    assert.notEqual(sessions[0].sessionId, sessions[1].sessionId);
+
+    const answerOf = (session: { answers: Array<{ id: string; answer: string }> }): string | undefined =>
+      session.answers.find((entry) => entry.id === "hidden-context")?.answer;
+    const persistedAnswers = [answerOf(sessions[0]), answerOf(sessions[1])].sort();
+    assert.deepEqual(persistedAnswers, ["Session A answer", "Session B answer"]);
+
+    assert.equal(
+      recordA.answers.find((a) => a.id === "hidden-context")?.answer,
+      "Session A answer",
+    );
+    assert.equal(
+      recordB.answers.find((a) => a.id === "hidden-context")?.answer,
+      "Session B answer",
+    );
   } finally {
     await rm(dir, { recursive: true });
   }

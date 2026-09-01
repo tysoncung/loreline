@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -123,15 +123,22 @@ export async function conductInterview(options: {
   const terminal = suppliedAnswers ? undefined : createInterface({ input, output });
 
   try {
-    const session: InterviewSession = options.resume
-      ? await loadSession(options.outputDirectory, options.resume)
-      : createSession({
-          project: options.config.project.name,
-          interviewee: requireInterviewee(options.interviewee),
-          interviewer: options.interviewer,
-          sourceReport: options.reportPath,
-          questions: buildInterviewQuestions(options.report),
-        });
+    let session: InterviewSession;
+    if (options.resume) {
+      session = await loadSession(options.outputDirectory, options.resume);
+    } else {
+      session = createSession({
+        project: options.config.project.name,
+        interviewee: requireInterviewee(options.interviewee),
+        interviewer: options.interviewer,
+        sourceReport: options.reportPath,
+        questions: buildInterviewQuestions(options.report),
+      });
+      // Two interviews for the same interviewee started within the same
+      // second would otherwise produce identical session ids and the second
+      // run's first save would silently overwrite the first session's file.
+      session.sessionId = await ensureUniqueSessionId(options.outputDirectory, session.sessionId);
+    }
     options.onSessionStart?.(session);
 
     // Persist immediately so an interruption before the first answer still
@@ -175,6 +182,33 @@ function requireInterviewee(interviewee: string | undefined): string {
     throw new Error("--interviewee is required to start a new interview.");
   }
   return interviewee;
+}
+
+// Session ids are stamped to whole-second precision, so two new sessions for
+// the same interviewee started within the same second would otherwise
+// collide on the same file path. Disambiguate by appending -2, -3, ... until
+// a free path is found, rather than erroring or silently overwriting.
+export async function ensureUniqueSessionId(
+  outputDirectory: string,
+  sessionId: string,
+): Promise<string> {
+  let candidate = sessionId;
+  for (let suffix = 2; await sessionFileExists(outputDirectory, candidate); suffix += 1) {
+    candidate = `${sessionId}-${suffix}`;
+  }
+  return candidate;
+}
+
+async function sessionFileExists(outputDirectory: string, sessionId: string): Promise<boolean> {
+  try {
+    await access(path.join(outputDirectory, "sessions", `${sessionId}.json`));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function writeInterview(
