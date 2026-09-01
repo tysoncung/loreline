@@ -20,10 +20,27 @@ interface ContentRule {
   // the rule's match includes surrounding context (e.g. a key label). Falls
   // back to the whole match when omitted.
   valueGroup?: number;
+  // Optional separate pattern used only by redactSecrets, for rules whose
+  // detection match (used for line-numbered reporting) is narrower than the
+  // span that must actually be scrubbed from the text.
+  redactSource?: string;
+  redactFlags?: string;
 }
 
 const CONTENT_RULES: ContentRule[] = [
-  { name: "private-key", severity: "high", source: "-----BEGIN [A-Z ]*PRIVATE KEY-----", flags: "g" },
+  {
+    name: "private-key",
+    severity: "high",
+    // Detection matches only the BEGIN header line, so findings report the
+    // line number where the key block starts.
+    source: "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    flags: "g",
+    // Redaction must consume the whole block (BEGIN line through END line,
+    // non-greedy across newlines) so no key material or the END marker
+    // survives in redacted output.
+    redactSource: "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+    redactFlags: "g",
+  },
   { name: "aws-access-key-id", severity: "high", source: "\\bAKIA[0-9A-Z]{16}\\b", flags: "g" },
   {
     name: "github-token",
@@ -116,7 +133,9 @@ export function redactSecrets(text: string): string {
     if (rule.severity !== "high") {
       continue;
     }
-    const regex = new RegExp(rule.source, rule.flags);
+    const source = rule.redactSource ?? rule.source;
+    const flags = rule.redactFlags ?? rule.flags;
+    const regex = new RegExp(source, flags);
     result = result.replace(regex, `[REDACTED:${rule.name}]`);
   }
   return result;

@@ -8,6 +8,7 @@ import {
   approvedPayload,
   buildTransmissionPreview,
   renderTransmissionPreview,
+  type TransmissionItem,
   type TransmissionPreview,
 } from "../src/transmit.js";
 
@@ -70,6 +71,7 @@ test("scanTextForSecrets flags a fine-grained GitHub PAT as high severity", () =
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.rule, "github-pat");
   assert.equal(findings[0]?.severity, "high");
+  assertNoPlantedValue(findings[0]?.preview ?? "", planted);
 });
 
 test("scanTextForSecrets flags a Slack token as high severity", () => {
@@ -79,6 +81,7 @@ test("scanTextForSecrets flags a Slack token as high severity", () => {
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.rule, "slack-token");
   assert.equal(findings[0]?.severity, "high");
+  assertNoPlantedValue(findings[0]?.preview ?? "", planted);
 });
 
 test("scanTextForSecrets flags a Stripe live key as high severity", () => {
@@ -88,6 +91,7 @@ test("scanTextForSecrets flags a Stripe live key as high severity", () => {
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.rule, "stripe-live-key");
   assert.equal(findings[0]?.severity, "high");
+  assertNoPlantedValue(findings[0]?.preview ?? "", planted);
 });
 
 test("scanTextForSecrets flags a quoted generic assignment as high severity", () => {
@@ -114,6 +118,7 @@ test("scanTextForSecrets flags a JWT-shaped string as medium severity", () => {
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.rule, "jwt");
   assert.equal(findings[0]?.severity, "medium");
+  assertNoPlantedValue(findings[0]?.preview ?? "", planted);
 });
 
 test("scanTextForSecrets flags a long high-entropy run as medium severity", () => {
@@ -179,6 +184,25 @@ test("redactSecrets removes high-confidence values and leaves medium matches unt
   assertNoPlantedValue(redacted, highPlanted);
   assert.equal(redacted.includes("[REDACTED:github-token]"), true);
   assert.equal(redacted.includes(jwtPlanted), true);
+});
+
+test("redactSecrets removes the entire private key block, not just the BEGIN header", () => {
+  // Built by concatenation, never a real key: a base64-ish body split
+  // across two lines, bracketed by BEGIN/END markers.
+  const bodyLine1 = "M" + "I".repeat(40);
+  const bodyLine2 = "Q" + "w".repeat(40);
+  const block =
+    "-----BEGIN RSA PRIVATE KEY-----\n" +
+    `${bodyLine1}\n` +
+    `${bodyLine2}\n` +
+    "-----END RSA PRIVATE KEY-----\n";
+
+  const redacted = redactSecrets(block);
+
+  assert.equal(redacted, "[REDACTED:private-key]\n");
+  assert.equal(redacted.includes(bodyLine1), false);
+  assert.equal(redacted.includes(bodyLine2), false);
+  assert.equal(redacted.includes("-----END"), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -319,26 +343,68 @@ test("approvedPayload throws while blocked and never leaks planted values in the
   });
 });
 
-test("approvedPayload redacts high-confidence values from excerpts of non-blocking items", async () => {
+test("approvedPayload re-derives blockedness from items and throws even when preview.blocked lies", async () => {
   await withTempDir(async (root) => {
     const planted = "s" + "3".repeat(13);
     await mkdir(root, { recursive: true });
     await writeFile(path.join(root, "notes.txt"), `password = "${planted}"\n`);
 
     const preview = await buildTransmissionPreview(root, ["notes.txt"]);
-    // generic-assignment is a high-confidence rule, so this file blocks; the
-    // test asserts the thrown state never leaks the value, and that a
-    // redacted, non-blocked payload also never leaks it.
+    // generic-assignment is a high-confidence rule, so this file genuinely
+    // blocks. A doctored preview claiming blocked: false, with the same
+    // non-excluded, still-high item, must still throw: approvedPayload must
+    // never trust a caller-supplied blocked/highFindings field.
     assert.equal(preview.blocked, true);
 
-    const cleared: TransmissionPreview = {
+    const doctored: TransmissionPreview = {
       items: preview.items,
       blocked: false,
       highFindings: 0,
     };
-    const payload = approvedPayload(cleared);
-    for (const item of payload) {
-      assertNoPlantedValue(item.excerpt, planted);
-    }
+
+    assert.throws(
+      () => approvedPayload(doctored),
+      /transmission blocked: 1 high-confidence secret finding\(s\); redact or exclude them first$/,
+    );
+  });
+});
+
+test("approvedPayload redacts a secret straddling the excerpt truncation boundary so no fragment leaks", async () => {
+  await withTempDir(async (root) => {
+    const planted = "ghp_" + "x".repeat(40); // 44 chars
+    const padding = "a".repeat(20);
+    // padding(20) + "\n"(1) + "token="(6) = 27 bytes of prefix; a 47-byte
+    // excerpt budget then cuts 20 bytes into the 44-char token, so a naive
+    // excerpt-only redaction (which needs the token to be fully present to
+    // match) would leave a partial, unredacted fragment behind.
+    const content = `${padding}\ntoken=${planted}\nmore content that trails the secret in the file\n`;
+    await writeFile(path.join(root, "boundary.txt"), content);
+
+    const preview = await buildTransmissionPreview(root, ["boundary.txt"], { maxExcerptBytes: 47 });
+    const realItem = preview.items[0];
+    assert.ok(realItem);
+    // Sanity check: the naive, pre-redaction excerpt really does contain a
+    // fragment of the secret, proving the boundary genuinely straddles it.
+    assert.equal(realItem.excerpt.includes("ghp_"), true);
+    assert.equal(
+      realItem.secretFindings.some((finding) => finding.rule === "github-token" && finding.severity === "high"),
+      true,
+    );
+
+    // A real high finding always blocks (see the previous test), so to
+    // exercise the redaction-truncation mechanism itself, simulate a caller
+    // whose item under-reports its own findings (e.g. stale/cached
+    // findings after a mutation) while the item object - and its private
+    // full-content association - is otherwise preserved via spread. Even
+    // when the throw-gate does not fire, the excerpt must still never carry
+    // a secret fragment.
+    const underReported: TransmissionItem = { ...realItem, secretFindings: [] };
+    const preview2: TransmissionPreview = { items: [underReported], blocked: false, highFindings: 0 };
+
+    const payload = approvedPayload(preview2);
+    const item = payload[0];
+    assert.ok(item);
+    assert.equal(item.excerpt.includes("ghp_"), false);
+    assertNoPlantedValue(item.excerpt, planted);
   });
 });
