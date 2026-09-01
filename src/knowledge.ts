@@ -167,26 +167,39 @@ async function checkReadinessCitations(
   root: string,
   outputDirectory: string,
 ): Promise<VerificationIssue[]> {
-  const readiness = await loadReadinessReport(outputDirectory);
-  if (!readiness) {
+  const loaded = await loadReadinessReport(outputDirectory);
+  if (loaded.issue) {
+    return [loaded.issue];
+  }
+  if (!loaded.report) {
     return [];
   }
 
   const issues: VerificationIssue[] = [];
-  for (const findingEntry of readiness.findings) {
+  for (const findingEntry of loaded.report.findings) {
     for (const citation of findingEntry.citations ?? []) {
-      const state = await checkCitation(root, citation);
-      if (state === "changed") {
+      try {
+        const state = await checkCitation(root, citation);
+        if (state === "changed") {
+          issues.push({
+            file: citation.file,
+            severity: "warning",
+            message: `Cited evidence changed since the readiness scan for "${findingEntry.title}": \`${citation.file}\`.`,
+          });
+        } else if (state === "missing") {
+          issues.push({
+            file: citation.file,
+            severity: "warning",
+            message: `Cited evidence missing since the readiness scan for "${findingEntry.title}": \`${citation.file}\`.`,
+          });
+        }
+      } catch (error) {
         issues.push({
           file: citation.file,
-          severity: "warning",
-          message: `Cited evidence changed since the readiness scan for "${findingEntry.title}": \`${citation.file}\`.`,
-        });
-      } else if (state === "missing") {
-        issues.push({
-          file: citation.file,
-          severity: "warning",
-          message: `Cited evidence missing since the readiness scan for "${findingEntry.title}": \`${citation.file}\`.`,
+          severity: "error",
+          message: `Unable to check cited evidence \`${citation.file}\`: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         });
       }
     }
@@ -194,16 +207,29 @@ async function checkReadinessCitations(
   return issues;
 }
 
-async function loadReadinessReport(outputDirectory: string): Promise<ReadinessReport | null> {
+interface ReadinessLoadResult {
+  report: ReadinessReport | null;
+  issue?: VerificationIssue;
+}
+
+async function loadReadinessReport(outputDirectory: string): Promise<ReadinessLoadResult> {
   const reportPath = path.join(outputDirectory, "readiness.json");
   try {
     const value: unknown = JSON.parse(await readFile(reportPath, "utf8"));
-    return await validateArtifact<ReadinessReport>("readiness", value, reportPath);
+    const report = await validateArtifact<ReadinessReport>("readiness", value, reportPath);
+    return { report };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
+      return { report: null };
     }
-    throw error;
+    return {
+      report: null,
+      issue: {
+        file: "readiness.json",
+        severity: "error",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 

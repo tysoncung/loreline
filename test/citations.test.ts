@@ -166,3 +166,81 @@ test("verifyKnowledge reports missing evidence when a cited file is deleted afte
     await rm(root, { recursive: true });
   }
 });
+
+test("verifyKnowledge reports an issue instead of crashing on a malformed readiness.json", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "loreline-cite-verify-"));
+  try {
+    const config = defaultConfig(root);
+    const outputDirectory = path.join(root, ".loreline");
+    await mkdir(outputDirectory, { recursive: true });
+    await writeFile(path.join(outputDirectory, "readiness.json"), "{ not valid json");
+
+    const interviewsDirectory = path.join(outputDirectory, "interviews");
+    await mkdir(interviewsDirectory, { recursive: true });
+    const interview: InterviewRecord = {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      project: config.project.name,
+      interviewee: "Alex",
+      interviewer: "Loreline",
+      sourceReport: ".loreline/readiness.json",
+      answers: [],
+      unanswered: [],
+    };
+    await writeFile(path.join(interviewsDirectory, "interview.json"), JSON.stringify(interview));
+
+    const result = await verifyKnowledge(config, outputDirectory, 180, root, new Date());
+
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.issues.some((issue) => issue.file === "readiness.json" && issue.severity === "error"),
+    );
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("verifyKnowledge reports an issue instead of crashing on an unsupported readiness schemaVersion", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "loreline-cite-verify-"));
+  try {
+    const config = defaultConfig(root);
+    const outputDirectory = path.join(root, ".loreline");
+    await mkdir(outputDirectory, { recursive: true });
+    await writeFile(
+      path.join(outputDirectory, "readiness.json"),
+      JSON.stringify({
+        schemaVersion: 99,
+        generatedAt: new Date().toISOString(),
+        root,
+        score: 0,
+        summary: { passed: 0, partial: 0, missing: 0, filesScanned: 0 },
+        findings: [],
+      }),
+    );
+
+    const interviewsDirectory = path.join(outputDirectory, "interviews");
+    await mkdir(interviewsDirectory, { recursive: true });
+    const interview: InterviewRecord = {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      project: config.project.name,
+      interviewee: "Alex",
+      interviewer: "Loreline",
+      sourceReport: ".loreline/readiness.json",
+      answers: [],
+      unanswered: [],
+    };
+    await writeFile(path.join(interviewsDirectory, "interview.json"), JSON.stringify(interview));
+
+    const result = await verifyKnowledge(config, outputDirectory, 180, root, new Date());
+
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.issues.some(
+        (issue) => issue.file === "readiness.json" && issue.message.includes("unsupported schemaVersion"),
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
