@@ -1,0 +1,49 @@
+{
+  "name": "@tysoncung/loreline",
+  "version": "0.1.0",
+  "description": "Turn undocumented organizational knowledge into verified, AI-ready context.",
+  "type": "module",
+  "bin": {
+    "loreline": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --import tsx src/cli.ts",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "ai-readiness",
+    "knowledge-transfer",
+    "documentation",
+    "cli",
+    "handoff"
+  ],
+  "author": "Tyson Cung",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tysoncung/loreline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tysoncung/loreline/issues"
+  },
+  "homepage": "https://github.com/tysoncung/loreline#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,17 @@
+schemaVersion: 1
+project:
+  name: loreline
+  owner: TODO
+scan:
+  include:
+    - "**/*"
+  exclude:
+    - .git
+    - node_modules
+    - dist
+    - build
+    - coverage
+    - .loreline
+  maxFiles: 10000
+output:
+  directory: .loreline
