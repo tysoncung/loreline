@@ -188,6 +188,33 @@ loreline compile
 
 Loreline compiles answered interview questions into `.loreline/context.md` and `.loreline/context.json`, grouped by topic with a citation back to every source record. The output remains explicitly reviewable rather than presenting interview statements as independently verified facts.
 
+#### AI-assisted compilation proposals
+
+```bash
+loreline compile --ai --provider ollama --model llama3
+```
+
+`--ai` runs the deterministic compile above unchanged, then asks the model to draft documentation-update proposals from the fresh context:
+
+1. Loreline resolves the AI provider and model first (from `--provider`/`--model`/`--base-url` flags or the config `ai` block), failing fast on a bad configuration.
+2. Compiled entries are grouped by category. Loreline prints the list of categories that would be sent and the byte size of each one.
+3. Unless `--yes` is passed, it asks for confirmation on an interactive terminal (`Send this context to <provider>? [y/N]`) before the first network call; a non-interactive run without `--yes` refuses instead of guessing.
+4. Before each category is sent, the assembled question/answer text is scanned for secrets. Any high-confidence finding aborts the whole run immediately, naming the offending category, before that category's network call (or any later one) is made; otherwise the redacted text is what is actually sent.
+5. For each category, the model returns a consolidated summary, any claims it sees as conflicting, and suggested updates for documents such as AGENTS.md, ADRs, runbooks, or ownership docs.
+
+The result is written under `.loreline/proposals/<timestamp>/`:
+
+```text
+.loreline/proposals/<timestamp>/
+  proposal.md
+  suggestions/
+    <target>.md
+```
+
+`proposal.md` has one section per category with three subsections: "Quoted facts" (the verbatim answers with source file and interviewee), "Inferred summary (AI-generated)" (the model's summary, with a provenance line naming the provider, model, and prompt version), and "Unresolved and conflicting" (conflicts the model flagged, conflicts Loreline detects deterministically whenever two answers to the same question disagree, and any questions still unanswered in that category). `suggestions/<target>.md` files hold the model's proposed documentation updates as drafts only; nothing is ever written to, or applied against, real project documentation, and nothing is created or modified outside `.loreline/proposals/`.
+
+If AI proposal generation fails (invalid model output, provider error), the deterministic `context.md` and `context.json` from step 1 are left untouched; only the proposal step exits non-zero.
+
 ### Verify knowledge quality
 
 ```bash

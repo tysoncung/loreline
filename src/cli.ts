@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import { compileWithAi, previewCategories } from "./ai/compiler.js";
 import { initialize, loadConfig, loadRequiredConfig } from "./config.js";
 import { analyzeHistory } from "./history.js";
 import { conductInterview, writeInterview } from "./interview.js";
@@ -19,7 +20,7 @@ import { applyReview } from "./review.js";
 import { scanRepository, writeReport } from "./scanner.js";
 import { selectInteractively, type InterviewScope } from "./scope.js";
 import { approvedPayload, buildTransmissionPreview, renderTransmissionPreview } from "./transmit.js";
-import type { ReadinessReport } from "./types.js";
+import type { KnowledgeContext, ReadinessReport } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
 const VERSION = "0.2.0";
@@ -265,14 +266,80 @@ async function interviewCommand(args: string[]): Promise<void> {
 async function compileCommand(args: string[]): Promise<void> {
   const { values } = parseArgs({
     args,
-    options: { path: { type: "string", short: "p", default: "." } },
+    options: {
+      path: { type: "string", short: "p", default: "." },
+      ai: { type: "boolean", default: false },
+      provider: { type: "string" },
+      model: { type: "string" },
+      "base-url": { type: "string" },
+      yes: { type: "boolean", default: false },
+    },
   });
   const root = path.resolve(values.path);
   const config = await loadRequiredConfig(root);
-  const result = await compileKnowledge(config, path.join(root, config.output.directory));
+  const outputDirectory = path.join(root, config.output.directory);
+  const result = await compileKnowledge(config, outputDirectory);
   console.log(`Compiled ${result.answers} answers from ${result.records} interview record(s).`);
   console.log(`AI context: ${result.markdownPath}`);
   console.log(`Structured context: ${result.jsonPath}`);
+
+  if (!values.ai) {
+    return;
+  }
+
+  // Resolve settings and construct the provider first, so a misconfigured
+  // provider fails fast before any transmission preview is built.
+  const settings = resolveAiSettings(config, {
+    ...(values.provider ? { provider: values.provider } : {}),
+    ...(values.model ? { model: values.model } : {}),
+    ...(values["base-url"] ? { baseUrl: values["base-url"] } : {}),
+  });
+  const provider = createProvider(settings, process.env);
+
+  const contextValue: unknown = JSON.parse(await readFile(result.jsonPath, "utf8"));
+  const context = await validateArtifact<KnowledgeContext>("context", contextValue, result.jsonPath);
+
+  const preview = await previewCategories(context, outputDirectory);
+  console.log(
+    `Categories to send: ${
+      preview.length > 0
+        ? preview.map((item) => `${item.category} (${item.bytes} bytes)`).join(", ")
+        : "(none)"
+    }`,
+  );
+
+  if (!values.yes) {
+    if (!process.stdin.isTTY) {
+      throw new Error(
+        `Refusing to send context to ${settings.provider} without confirmation in a non-interactive terminal; pass --yes to proceed.`,
+      );
+    }
+    const terminal = createInterface({ input: process.stdin, output: process.stdout });
+    let confirmation: string;
+    try {
+      confirmation = await terminal.question(`Send this context to ${settings.provider}? [y/N] `);
+    } finally {
+      terminal.close();
+    }
+    if (confirmation.trim().toLowerCase() !== "y") {
+      throw new Error("Aborted: transmission to the AI provider was not confirmed.");
+    }
+  }
+
+  try {
+    const proposals = await compileWithAi({ provider, context, outputDirectory });
+    console.log(`Proposals: ${proposals.directory}`);
+    for (const file of proposals.files) {
+      console.log(`- ${path.relative(root, file)}`);
+    }
+    console.log(`Conflicts detected: ${proposals.conflicts}`);
+  } catch (error) {
+    throw new Error(
+      `AI proposal generation failed; deterministic compile artifacts remain intact at ` +
+        `${path.relative(root, result.markdownPath)} and ${path.relative(root, result.jsonPath)}: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 async function verifyCommand(args: string[]): Promise<void> {
@@ -415,6 +482,7 @@ Usage:
   loreline interview [...] [--ai --provider <name> --model <name> --base-url <url>]
   loreline interview [...] [--ai [--max-followups <n>] [--yes]]
   loreline compile [--path <directory>]
+  loreline compile [...] [--ai --provider <name> --model <name> --base-url <url>] [--yes]
   loreline verify [--path <directory>] [--max-age <days>] [--json] [--require-approval]
   loreline review --entry <id> --approve|--dispute --owner <name> [--reviewer <name> ...] [--reason <text>] [--due <YYYY-MM-DD>]
 
@@ -429,6 +497,9 @@ Commands:
              --ai adds AI-generated questions and follow-ups, after previewing
              and confirming what evidence would be sent to the provider
   compile    Compile interview records into reviewable AI context
+             --ai additionally proposes documentation updates (AGENTS.md,
+             ADRs, runbooks, ownership docs) under .loreline/proposals/,
+             after previewing and confirming what would be sent
   verify     Check knowledge records for completeness and freshness
   review     Record human approval or dispute for a compiled knowledge entry
 `);

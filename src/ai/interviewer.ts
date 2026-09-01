@@ -226,7 +226,7 @@ function stampOrigin(provider: AiProvider): NonNullable<InterviewQuestion["origi
 // Strips a single leading/trailing markdown code fence (```json ... ``` or
 // ``` ... ```) if present, so a model response wrapped in a fence still
 // parses as JSON. Leaves unfenced text untouched.
-function stripCodeFences(text: string): string {
+export function stripCodeFences(text: string): string {
   const trimmed = text.trim();
   const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   return match ? (match[1] ?? "").trim() : trimmed;
