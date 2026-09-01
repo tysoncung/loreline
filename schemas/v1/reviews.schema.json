@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loreline.dev/schemas/v1/reviews.schema.json",
+  "title": "Loreline review log",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "project", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entryId", "answerFingerprint", "status", "owner", "reviewers", "reviewedAt"],
+        "properties": {
+          "entryId": { "type": "string", "minLength": 1 },
+          "answerFingerprint": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["approved", "disputed"] },
+          "owner": { "type": "string", "minLength": 1 },
+          "reviewers": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reason": { "type": "string", "minLength": 1 },
+          "reviewedAt": { "type": "string", "format": "date-time" },
+          "dueDate": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

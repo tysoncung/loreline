@@ -1,0 +1,3 @@
+This is a placeholder source file used by the Loreline evaluation fixture.
+It has no real functionality; it only needs to exist so a repository scan
+has something to inventory.

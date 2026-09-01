@@ -1,3 +1,7 @@
+import type { Citation } from "./citations.js";
+import type { HistoryInsights } from "./history.js";
+import type { InterviewScope, ScanScope } from "./scope.js";
+
 export type FindingStatus = "pass" | "missing" | "partial";
 
 export interface Finding {
@@ -7,10 +11,11 @@ export interface Finding {
   weight: number;
   evidence: string[];
   recommendation: string;
+  citations?: Citation[];
 }
 
 export interface ReadinessReport {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   root: string;
   score: number;
@@ -20,11 +25,15 @@ export interface ReadinessReport {
     missing: number;
     filesScanned: number;
   };
+  scope?: ScanScope;
   findings: Finding[];
+  history?: HistoryInsights;
+  mode?: "repository" | "documents";
+  unreadable?: string[];
 }
 
 export interface LorelineConfig {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   project: {
     name: string;
     owner: string;
@@ -37,6 +46,11 @@ export interface LorelineConfig {
   output: {
     directory: string;
   };
+  ai?: {
+    provider: "openai" | "anthropic" | "ollama" | "fake";
+    model: string;
+    baseUrl?: string;
+  };
 }
 
 export interface InterviewQuestion {
@@ -45,10 +59,16 @@ export interface InterviewQuestion {
   question: string;
   reason: string;
   sourceFinding?: string;
+  origin?: {
+    type: "ai";
+    provider: string;
+    model: string;
+    promptVersion: string;
+  };
 }
 
 export interface InterviewRecord {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   project: string;
   interviewee: string;
@@ -56,6 +76,17 @@ export interface InterviewRecord {
   sourceReport: string;
   answers: Array<InterviewQuestion & { answer: string }>;
   unanswered: string[];
+  scope?: InterviewScope;
+}
+
+export interface KnowledgeEntryReview {
+  status: "approved" | "disputed";
+  owner: string;
+  reviewedAt: string;
+  dueDate?: string;
+  reason?: string;
+  stale: boolean;
+  conflicting: boolean;
 }
 
 export interface KnowledgeEntry {
@@ -68,10 +99,23 @@ export interface KnowledgeEntry {
     interviewee: string;
     generatedAt: string;
   };
+  review?: KnowledgeEntryReview;
+}
+
+export interface KnowledgeContextImport {
+  sourceId: string;
+  adapter: string;
+  title: string;
+  path: string;
+  fingerprint: string;
+  importedAt: string;
+  author?: string;
+  updatedAt?: string;
+  link?: string;
 }
 
 export interface KnowledgeContext {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   project: string;
   owner: string;
@@ -86,6 +130,7 @@ export interface KnowledgeContext {
     interviewee: string;
     generatedAt: string;
   }>;
+  imports?: KnowledgeContextImport[];
 }
 
 export interface VerificationIssue {

@@ -3,3 +3,5 @@ dist/
 *.tgz
 .DS_Store
 .loreline/
+.superpowers/
+test/evals/results/

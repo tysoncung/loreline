@@ -1,9 +1,24 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Finding, LorelineConfig, ReadinessReport } from "./types.js";
+import { citeFile } from "./citations.js";
+import { METHODOLOGY as HISTORY_METHODOLOGY, type AreaOwnership, type HistoryInsights } from "./history.js";
+import { inScope, type ScanScope } from "./scope.js";
+import type { Finding, FindingStatus, LorelineConfig, ReadinessReport } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
 const DOCUMENT_PATTERN = /\.(?:md|mdx|txt|rst|adoc)$/i;
+
+const MIN_ANALYZED_COMMITS = 10;
+const QUALIFYING_AREA_COMMITS = 5;
+const CONCENTRATION_THRESHOLD = 0.8;
+
+const NO_HISTORY: HistoryInsights = {
+  available: false,
+  analyzedCommits: 0,
+  excludedIdentities: [],
+  methodology: HISTORY_METHODOLOGY,
+  areas: [],
+};
 
 interface RepositoryInventory {
   files: string[];
@@ -11,9 +26,26 @@ interface RepositoryInventory {
   packageScripts: Record<string, string>;
 }
 
-export async function scanRepository(root: string, config: LorelineConfig): Promise<ReadinessReport> {
-  const inventory = await inventoryRepository(root, config);
-  const findings = buildFindings(inventory);
+export async function scanRepository(
+  root: string,
+  config: LorelineConfig,
+  cliScope?: ScanScope,
+  options?: { history?: HistoryInsights },
+): Promise<ReadinessReport> {
+  const narrowed = Boolean(cliScope && (cliScope.include.length > 0 || cliScope.exclude.length > 0));
+  // CLI includes replace the config include list entirely rather than
+  // appending to it: config.scan.include defaults to "**/*", and appending
+  // to a pattern that already matches everything would make --include a
+  // no-op. CLI excludes stay additive to config excludes; exclude-wins
+  // semantics are unchanged.
+  const scope: ScanScope = {
+    include: cliScope && cliScope.include.length > 0 ? cliScope.include : config.scan.include,
+    exclude: [...config.scan.exclude, ...(cliScope?.exclude ?? [])],
+  };
+  const history = options?.history ?? NO_HISTORY;
+
+  const inventory = await inventoryRepository(root, config, scope);
+  const findings = await citeFindings(root, [...buildFindings(inventory), knowledgeConcentrationFinding(history)]);
   const totalWeight = findings.reduce((sum, finding) => sum + finding.weight, 0);
   const earnedWeight = findings.reduce((sum, finding) => {
     const multiplier = finding.status === "pass" ? 1 : finding.status === "partial" ? 0.5 : 0;
@@ -21,7 +53,7 @@ export async function scanRepository(root: string, config: LorelineConfig): Prom
   }, 0);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     root,
     score: Math.round((earnedWeight / totalWeight) * 100),
@@ -31,7 +63,10 @@ export async function scanRepository(root: string, config: LorelineConfig): Prom
       missing: findings.filter((finding) => finding.status === "missing").length,
       filesScanned: inventory.files.length,
     },
+    ...(narrowed ? { scope } : {}),
+    mode: "repository",
     findings,
+    ...(history.available ? { history } : {}),
   };
 }
 
@@ -48,6 +83,23 @@ export async function writeReport(
     writeFile(markdownPath, renderMarkdownReport(report)),
   ]);
   return { jsonPath, markdownPath };
+}
+
+// Findings whose "evidence" strings are human-readable summaries rather than
+// repository file paths cannot be cited: citeFile would try to read them as
+// files and fail.
+const UNCITABLE_FINDINGS = new Set(["knowledge-concentration"]);
+
+async function citeFindings(root: string, findings: Finding[]): Promise<Finding[]> {
+  return Promise.all(
+    findings.map(async (finding) => {
+      if (finding.evidence.length === 0 || UNCITABLE_FINDINGS.has(finding.id)) {
+        return finding;
+      }
+      const citations = await Promise.all(finding.evidence.map((file) => citeFile(root, file)));
+      return { ...finding, citations };
+    }),
+  );
 }
 
 function buildFindings(inventory: RepositoryInventory): Finding[] {
@@ -128,6 +180,49 @@ function verificationStatus(inventory: RepositoryInventory): "pass" | "partial" 
   return "missing";
 }
 
+function knowledgeConcentrationFinding(history: HistoryInsights): Finding {
+  if (!history.available || history.analyzedCommits < MIN_ANALYZED_COMMITS) {
+    return finding(
+      "knowledge-concentration",
+      "Knowledge distribution",
+      "partial",
+      10,
+      [],
+      "Not enough git history was available for automated analysis; review contributor concentration manually.",
+    );
+  }
+
+  const qualifying = history.areas.filter((area) => area.commits >= QUALIFYING_AREA_COMMITS);
+  const risky = qualifying.filter((area) => area.topShare > CONCENTRATION_THRESHOLD);
+
+  let status: FindingStatus;
+  if (risky.length === 0) {
+    status = "pass";
+  } else if (risky.length > qualifying.length / 2) {
+    status = "missing";
+  } else {
+    status = "partial";
+  }
+
+  const evidence = risky.map((area) => concentrationEvidence(area));
+
+  return finding(
+    "knowledge-concentration",
+    "Knowledge distribution",
+    status,
+    10,
+    evidence,
+    "Cross-train a backup contributor for areas where git history shows knowledge concentrated in one person.",
+  );
+}
+
+function concentrationEvidence(area: AreaOwnership): string {
+  const top = area.contributors[0];
+  const name = top?.name ?? "unknown";
+  const pct = Math.round(area.topShare * 100);
+  return `${area.area}: ${name} authored ${pct}% of ${area.commits} commits`;
+}
+
 function finding(
   id: string,
   title: string,
@@ -139,8 +234,16 @@ function finding(
   return { id, title, status, weight, evidence, recommendation };
 }
 
-async function inventoryRepository(root: string, config: LorelineConfig): Promise<RepositoryInventory> {
+async function inventoryRepository(
+  root: string,
+  config: LorelineConfig,
+  scope: ScanScope,
+): Promise<RepositoryInventory> {
   const files: string[] = [];
+  // Simple name-based exclusion prunes whole directories during the walk so
+  // excluded trees (e.g. node_modules) are never descended into; this stays
+  // in place for speed even though the fuller glob-based scope below is what
+  // ultimately decides which files are kept.
   const excluded = new Set(config.scan.exclude);
 
   async function walk(directory: string): Promise<void> {
@@ -156,7 +259,9 @@ async function inventoryRepository(root: string, config: LorelineConfig): Promis
           await walk(absolute);
         }
       } else if (entry.isFile()) {
-        files.push(relative);
+        if (inScope(relative, scope)) {
+          files.push(relative);
+        }
       }
     }
   }
@@ -192,10 +297,12 @@ async function readPackageScripts(root: string): Promise<Record<string, string>>
 
 function renderMarkdownReport(report: ReadinessReport): string {
   const rows = report.findings
-    .map(
-      (finding) =>
-        `| ${finding.status === "pass" ? "PASS" : finding.status.toUpperCase()} | ${finding.title} | ${finding.recommendation} |`,
-    )
+    .map((finding) => {
+      const citedFiles = finding.citations?.length
+        ? ` ${finding.citations.map((citation) => `\`${citation.file}\``).join(" ")}`
+        : "";
+      return `| ${finding.status === "pass" ? "PASS" : finding.status.toUpperCase()} | ${finding.title} | ${finding.recommendation}${citedFiles} |`;
+    })
     .join("\n");
   return `# AI Readiness Report
 

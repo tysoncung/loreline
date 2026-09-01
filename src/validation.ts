@@ -10,36 +10,83 @@ export type ArtifactKind =
   | "config"
   | "readiness"
   | "interview"
+  | "session"
   | "context"
-  | "verification";
+  | "verification"
+  | "reviews"
+  | "imports"
+  | "handoff";
 
-const validators = new Map<ArtifactKind, Promise<ValidateFunction>>();
+// Only lists versions for kinds that exist today. Later tasks extend both the
+// ArtifactKind union and these maps when they introduce new schema versions.
+export const SUPPORTED_VERSIONS: Record<ArtifactKind, number[]> = {
+  config: [1, 2],
+  readiness: [1, 2],
+  interview: [1, 2],
+  session: [1],
+  context: [1, 2],
+  verification: [1],
+  reviews: [1],
+  imports: [1],
+  handoff: [1],
+};
+
+export const LATEST_VERSION: Record<ArtifactKind, number> = {
+  config: 2,
+  readiness: 2,
+  interview: 2,
+  session: 1,
+  context: 2,
+  verification: 1,
+  reviews: 1,
+  imports: 1,
+  handoff: 1,
+};
+
+const validators = new Map<string, Promise<ValidateFunction>>();
 
 export async function validateArtifact<T>(
   kind: ArtifactKind,
   value: unknown,
   source: string,
 ): Promise<T> {
-  const validate = await getValidator(kind);
+  const version = (value as { schemaVersion?: unknown } | null)?.schemaVersion;
+  if (!isSupportedVersion(kind, version)) {
+    const supported = SUPPORTED_VERSIONS[kind].join(", ");
+    throw new Error(
+      `Invalid ${kind} artifact ${source}: unsupported schemaVersion ${String(version)} (supported: ${supported})`,
+    );
+  }
+
+  const validate = await getValidator(kind, version);
   if (!validate(value)) {
     throw new Error(`Invalid ${kind} artifact ${source}:\n${formatErrors(validate.errors)}`);
   }
   return value as T;
 }
 
-function getValidator(kind: ArtifactKind): Promise<ValidateFunction> {
-  const existing = validators.get(kind);
+function isSupportedVersion(kind: ArtifactKind, version: unknown): version is number {
+  return (
+    typeof version === "number" &&
+    Number.isInteger(version) &&
+    SUPPORTED_VERSIONS[kind].includes(version)
+  );
+}
+
+function getValidator(kind: ArtifactKind, version: number): Promise<ValidateFunction> {
+  const cacheKey = `${kind}:${version}`;
+  const existing = validators.get(cacheKey);
   if (existing) {
     return existing;
   }
 
-  const pending = loadValidator(kind);
-  validators.set(kind, pending);
+  const pending = loadValidator(kind, version);
+  validators.set(cacheKey, pending);
   return pending;
 }
 
-async function loadValidator(kind: ArtifactKind): Promise<ValidateFunction> {
-  const schemaUrl = new URL(`../schemas/v1/${kind}.schema.json`, import.meta.url);
+async function loadValidator(kind: ArtifactKind, version: number): Promise<ValidateFunction> {
+  const schemaUrl = new URL(`../schemas/v${version}/${kind}.schema.json`, import.meta.url);
   const schema: unknown = JSON.parse(await readFile(schemaUrl, "utf8"));
   if (typeof schema !== "object" || schema === null) {
     throw new Error(`Invalid packaged schema: ${schemaUrl.pathname}`);

@@ -1,7 +1,18 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { detectContradictions, generateFollowup, generateQuestions, PROMPT_VERSION } from "./ai/interviewer.js";
+import type { AiProvider } from "./providers/types.js";
+import {
+  createSession,
+  loadSession,
+  recordAnswer,
+  saveSession,
+  toInterviewRecord,
+  type InterviewSession,
+} from "./session.js";
+import type { InterviewScope } from "./scope.js";
 import type {
   InterviewQuestion,
   InterviewRecord,
@@ -87,49 +98,212 @@ const FINDING_QUESTIONS: Record<string, InterviewQuestion> = {
     reason: "Automated verification is missing or incomplete.",
     sourceFinding: "verification",
   },
+  "knowledge-concentration": {
+    id: "concentration-backups",
+    category: "ownership",
+    question: "Which areas would stall if their main contributor left tomorrow, and who should shadow them?",
+    reason: "Git history shows knowledge concentrated in few people.",
+    sourceFinding: "knowledge-concentration",
+  },
 };
 
-export function buildInterviewQuestions(report: ReadinessReport): InterviewQuestion[] {
+export function buildInterviewQuestions(
+  report: ReadinessReport,
+  scope?: InterviewScope,
+): InterviewQuestion[] {
   const targeted = report.findings
     .filter((finding) => finding.status !== "pass")
+    .filter((finding) => !scope?.findings || scope.findings.includes(finding.id))
     .map((finding) => FINDING_QUESTIONS[finding.id])
     .filter((question): question is InterviewQuestion => question !== undefined);
-  return [...targeted, ...BASE_QUESTIONS];
+
+  const all = [...targeted, ...BASE_QUESTIONS];
+  if (!scope?.categories) {
+    return all;
+  }
+  const categories = scope.categories;
+  return all.filter((question) => categories.includes(question.category));
 }
 
 export async function conductInterview(options: {
   config: LorelineConfig;
   report: ReadinessReport;
   reportPath: string;
-  interviewee: string;
+  interviewee?: string;
   interviewer: string;
   answersPath?: string;
+  outputDirectory: string;
+  resume?: string;
+  revise?: boolean;
+  scope?: InterviewScope;
+  ai?: {
+    provider: AiProvider;
+    maxFollowups: number;
+    evidence: Array<{ file: string; excerpt: string }>;
+  };
+  onSessionStart?: (session: InterviewSession) => void;
 }): Promise<InterviewRecord> {
-  const questions = buildInterviewQuestions(options.report);
+  const ai = options.ai;
   const suppliedAnswers = options.answersPath
     ? await loadSuppliedAnswers(options.answersPath)
     : undefined;
   const terminal = suppliedAnswers ? undefined : createInterface({ input, output });
 
   try {
-    const answers: InterviewRecord["answers"] = [];
-    for (const question of questions) {
-      const answer = suppliedAnswers?.[question.id] ?? await terminal?.question(`\n${question.question}\n> `) ?? "";
-      answers.push({ ...question, answer: answer.trim() });
+    let session: InterviewSession;
+    if (options.resume) {
+      session = await loadSession(options.outputDirectory, options.resume);
+      // A completed session resumed without --revise would otherwise skip
+      // every question (each already has an answer) and still fall through
+      // to writing a fresh interview record, duplicating every answer.
+      if (session.status === "completed" && !options.revise) {
+        throw new Error(
+          `Session "${session.sessionId}" is already completed. Pass --revise to reopen it.`,
+        );
+      }
+    } else {
+      const deterministicQuestions = buildInterviewQuestions(options.report, options.scope);
+      // AI question generation happens before the session exists, so a
+      // failure here (invalid JSON that survives the retry) never leaves a
+      // half-started, unresumable session on disk: there is simply no
+      // session yet.
+      const aiQuestions = ai
+        ? await generateQuestions({ provider: ai.provider, report: options.report, evidence: ai.evidence })
+        : [];
+      session = createSession({
+        project: options.config.project.name,
+        interviewee: requireInterviewee(options.interviewee),
+        interviewer: options.interviewer,
+        sourceReport: options.reportPath,
+        questions: [...deterministicQuestions, ...aiQuestions],
+        ...(options.scope ? { scope: options.scope } : {}),
+      });
+      // Two interviews for the same interviewee started within the same
+      // second would otherwise produce identical session ids and the second
+      // run's first save would silently overwrite the first session's file.
+      session.sessionId = await ensureUniqueSessionId(options.outputDirectory, session.sessionId);
+    }
+    options.onSessionStart?.(session);
+
+    // Persist immediately so an interruption before the first answer still
+    // leaves a resumable session on disk.
+    await saveSession(options.outputDirectory, session);
+
+    const followupBudget = ai?.maxFollowups ?? 0;
+    let followupsUsed = 0;
+
+    for (let index = 0; index < session.questions.length; index += 1) {
+      const question = session.questions[index]!;
+      const existing = session.answers.find((entry) => entry.id === question.id);
+      const shouldPrompt = !existing || options.revise === true;
+      if (!shouldPrompt) {
+        continue;
+      }
+
+      const supplied = suppliedAnswers?.[question.id];
+      const raw = supplied ?? (await terminal?.question(`\n${question.question}\n> `)) ?? "";
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      recordAnswer(session, question.id, trimmed, options.interviewer, {
+        revise: existing !== undefined,
+      });
+      // Persist after every accepted answer so interruption or a thrown
+      // provider error mid-interview leaves the open session on disk.
+      await saveSession(options.outputDirectory, session);
+
+      const alreadyHasFollowup = session.questions.some(
+        (candidate) => candidate.id === `${question.id}-followup`,
+      );
+      if (
+        ai &&
+        followupsUsed < followupBudget &&
+        !question.id.endsWith("-followup") &&
+        !alreadyHasFollowup &&
+        trimmed.length < 60
+      ) {
+        const followup = await generateFollowup(ai.provider, question, trimmed);
+        if (followup) {
+          followupsUsed += 1;
+          // Insert right after the question it follows up on, so it is
+          // asked next.
+          session.questions.splice(index + 1, 0, followup);
+          await saveSession(options.outputDirectory, session);
+        }
+      }
     }
 
-    return {
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      project: options.config.project.name,
-      interviewee: options.interviewee,
-      interviewer: options.interviewer,
-      sourceReport: options.reportPath,
-      answers,
-      unanswered: answers.filter((answer) => !answer.answer).map((answer) => answer.id),
-    };
+    if (ai && !session.questions.some((question) => question.id.startsWith("contradiction-"))) {
+      const answeredPairs = session.questions
+        .map((question) => {
+          const entry = session.answers.find((answer) => answer.id === question.id);
+          return entry && entry.answer.trim() ? { question: question.question, answer: entry.answer } : undefined;
+        })
+        .filter((value): value is { question: string; answer: string } => value !== undefined);
+
+      const contradictions = await detectContradictions(ai.provider, answeredPairs);
+      if (contradictions.length > 0) {
+        contradictions.forEach((description, contradictionIndex) => {
+          session.questions.push({
+            id: `contradiction-${contradictionIndex + 1}`,
+            category: "contradiction",
+            question: description,
+            reason: "Possible contradiction between answers.",
+            origin: {
+              type: "ai",
+              provider: ai.provider.name,
+              model: ai.provider.model,
+              promptVersion: PROMPT_VERSION,
+            },
+          });
+        });
+        await saveSession(options.outputDirectory, session);
+      }
+    }
+
+    session.status = "completed";
+    session.updatedAt = new Date().toISOString();
+    await saveSession(options.outputDirectory, session);
+
+    return toInterviewRecord(session);
   } finally {
     terminal?.close();
+  }
+}
+
+function requireInterviewee(interviewee: string | undefined): string {
+  if (!interviewee) {
+    throw new Error("--interviewee is required to start a new interview.");
+  }
+  return interviewee;
+}
+
+// Session ids are stamped to whole-second precision, so two new sessions for
+// the same interviewee started within the same second would otherwise
+// collide on the same file path. Disambiguate by appending -2, -3, ... until
+// a free path is found, rather than erroring or silently overwriting.
+export async function ensureUniqueSessionId(
+  outputDirectory: string,
+  sessionId: string,
+): Promise<string> {
+  let candidate = sessionId;
+  for (let suffix = 2; await sessionFileExists(outputDirectory, candidate); suffix += 1) {
+    candidate = `${sessionId}-${suffix}`;
+  }
+  return candidate;
+}
+
+async function sessionFileExists(outputDirectory: string, sessionId: string): Promise<boolean> {
+  try {
+    await access(path.join(outputDirectory, "sessions", `${sessionId}.json`));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -163,7 +337,7 @@ async function loadSuppliedAnswers(file: string): Promise<Record<string, string>
   return value as Record<string, string>;
 }
 
-function slug(value: string): string {
+export function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
 }
 

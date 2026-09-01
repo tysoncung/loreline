@@ -64,6 +64,7 @@ test("verifies complete and current knowledge records", async () => {
       config,
       path.join(root, ".loreline"),
       180,
+      root,
       new Date("2026-09-01T00:00:00.000Z"),
     );
 
@@ -90,6 +91,7 @@ test("reports stale, incomplete, and mismatched knowledge", async () => {
       config,
       path.join(root, ".loreline"),
       180,
+      root,
       new Date("2026-09-01T00:00:00.000Z"),
     );
 
@@ -113,6 +115,7 @@ test("reports malformed records by file while verifying valid records", async ()
       config,
       path.join(root, ".loreline"),
       180,
+      root,
       new Date("2026-09-01T00:00:00.000Z"),
     );
 
@@ -135,6 +138,7 @@ test("treats whitespace-only answers as unanswered", async () => {
       config,
       path.join(root, ".loreline"),
       180,
+      root,
       new Date("2026-09-01T00:00:00.000Z"),
     );
 

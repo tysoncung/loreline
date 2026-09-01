@@ -14,16 +14,25 @@
   ],
   "exports": {
     "./schemas/v1/config": "./schemas/v1/config.schema.json",
+    "./schemas/v2/config": "./schemas/v2/config.schema.json",
     "./schemas/v1/readiness": "./schemas/v1/readiness.schema.json",
+    "./schemas/v2/readiness": "./schemas/v2/readiness.schema.json",
     "./schemas/v1/interview": "./schemas/v1/interview.schema.json",
+    "./schemas/v2/interview": "./schemas/v2/interview.schema.json",
+    "./schemas/v1/session": "./schemas/v1/session.schema.json",
     "./schemas/v1/context": "./schemas/v1/context.schema.json",
+    "./schemas/v2/context": "./schemas/v2/context.schema.json",
     "./schemas/v1/verification": "./schemas/v1/verification.schema.json",
+    "./schemas/v1/reviews": "./schemas/v1/reviews.schema.json",
+    "./schemas/v1/imports": "./schemas/v1/imports.schema.json",
+    "./schemas/v1/handoff": "./schemas/v1/handoff.schema.json",
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "node --import tsx src/cli.ts",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts test/**/*.test.ts",
+    "eval": "node --import tsx --test test/evals/*.eval.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build"
   },
