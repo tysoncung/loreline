@@ -95,9 +95,8 @@ export async function withEvalResult(
 }
 
 const REAL_PROVIDER_NAMES: readonly AiProviderName[] = ["openai", "anthropic", "ollama"];
-const DEFAULT_EVAL_MODELS: Record<(typeof REAL_PROVIDER_NAMES)[number], string> = {
+const DEFAULT_EVAL_MODELS: Partial<Record<(typeof REAL_PROVIDER_NAMES)[number], string>> = {
   openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-haiku-20241022",
   ollama: "llama3.1",
 };
 
@@ -107,7 +106,8 @@ const DEFAULT_EVAL_MODELS: Record<(typeof REAL_PROVIDER_NAMES)[number], string> 
  * model-graded eval can opt in locally. Returns undefined (never throws) when
  * LORELINE_EVAL_PROVIDER is unset, which is the default in CI: the
  * model-graded test calls t.skip() in that case. LORELINE_EVAL_MODEL
- * overrides the default model per provider.
+ * overrides the default model per provider, and is required for providers
+ * without a bundled default (anthropic).
  */
 export function maybeRealProvider(): AiProvider | undefined {
   const providerName = process.env.LORELINE_EVAL_PROVIDER;
@@ -121,6 +121,9 @@ export function maybeRealProvider(): AiProvider | undefined {
   }
   const name = providerName as (typeof REAL_PROVIDER_NAMES)[number];
   const model = process.env.LORELINE_EVAL_MODEL ?? DEFAULT_EVAL_MODELS[name];
+  if (!model) {
+    throw new Error(`Set LORELINE_EVAL_MODEL to choose a model for provider "${name}".`);
+  }
   return createProvider({ provider: name, model }, process.env);
 }
 

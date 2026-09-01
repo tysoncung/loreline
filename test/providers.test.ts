@@ -114,12 +114,12 @@ test("resolveAiSettings prefers flags over config.ai field-by-field", () => {
 
   const settings = resolveAiSettings(config, {
     provider: "anthropic",
-    model: "claude-3",
+    model: "anthropic-test-model",
   });
 
   assert.deepEqual(settings, {
     provider: "anthropic",
-    model: "claude-3",
+    model: "anthropic-test-model",
     baseUrl: "https://config.example",
   });
 });
@@ -275,7 +275,7 @@ test("createOpenAiProvider surfaces a non-2xx response as an actionable Provider
 test("createAnthropicProvider throws a ProviderError naming both env vars when the key is missing", () => {
   assert.throws(
     () =>
-      createAnthropicProvider({ provider: "anthropic", model: "claude-3-haiku" }, {} as NodeJS.ProcessEnv),
+      createAnthropicProvider({ provider: "anthropic", model: "anthropic-test-model" }, {} as NodeJS.ProcessEnv),
     (error: unknown) => {
       assert.ok(error instanceof ProviderError);
       assert.match(error.message, /ANTHROPIC_API_KEY/);
@@ -297,7 +297,7 @@ test("createAnthropicProvider joins system messages, defaults maxTokens, and par
   }) as typeof fetch;
 
   const provider = createAnthropicProvider(
-    { provider: "anthropic", model: "claude-3-haiku" },
+    { provider: "anthropic", model: "anthropic-test-model" },
     { ANTHROPIC_API_KEY: secretKey } as NodeJS.ProcessEnv,
     fetchImpl,
   );
@@ -335,7 +335,7 @@ test("createAnthropicProvider uses an explicit maxTokens when provided", async (
   }) as typeof fetch;
 
   const provider = createAnthropicProvider(
-    { provider: "anthropic", model: "claude-3-haiku" },
+    { provider: "anthropic", model: "anthropic-test-model" },
     { ANTHROPIC_API_KEY: "key" } as NodeJS.ProcessEnv,
     fetchImpl,
   );
@@ -348,7 +348,7 @@ test("createAnthropicProvider surfaces a non-2xx response as an actionable Provi
     jsonResponse(429, { error: { type: "rate_limit_error", message: "Rate limited" } })) as typeof fetch;
 
   const provider = createAnthropicProvider(
-    { provider: "anthropic", model: "claude-3-haiku" },
+    { provider: "anthropic", model: "anthropic-test-model" },
     { ANTHROPIC_API_KEY: secretKey } as NodeJS.ProcessEnv,
     fetchImpl,
   );

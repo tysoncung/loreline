@@ -113,6 +113,7 @@ LORELINE_EVAL_PROVIDER=ollama npm run eval
 ```
 
 `LORELINE_EVAL_MODEL` overrides the default model used for the chosen
-provider (`gpt-4o-mini`, `claude-3-5-haiku-20241022`, and `llama3.1`
-respectively). The eval makes one real network call to the configured
-provider and records its result like any other eval.
+provider (`gpt-4o-mini` for openai and `llama3.1` for ollama), and is
+required for anthropic, which has no bundled default. The eval makes one
+real network call to the configured provider and records its result like
+any other eval.

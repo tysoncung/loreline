@@ -20,7 +20,7 @@
 - Existing command behavior without new flags must remain byte-for-byte compatible (except where a task explicitly bumps an artifact's schemaVersion).
 - Commit after every task: `git add -A && git commit -m "<type>: <summary> (refs #N)"`. Do not push.
 - User copy rule: never use the em dash character in any authored text or docs.
-- All file paths below are relative to the worktree root `/Users/tyson/Dropbox/codes/loreline/.claude/worktrees/roadmap-implementation`.
+- All file paths below are relative to the repository root.
 
 ---
 

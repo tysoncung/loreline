@@ -120,11 +120,9 @@ function buildFindings(inventory: RepositoryInventory): Finding[] {
     finding(
       "ai-guidance",
       "AI agent guidance",
-      matching(/(^|\/)(?:agents|claude)\.md$/i, /(^|\/)\.github\/copilot-instructions\.md$/i).length > 0
-        ? "pass"
-        : "missing",
+      matching(/(^|\/)agents\.md$/i).length > 0 ? "pass" : "missing",
       15,
-      matching(/(^|\/)(?:agents|claude)\.md$/i, /(^|\/)\.github\/copilot-instructions\.md$/i),
+      matching(/(^|\/)agents\.md$/i),
       "Add AGENTS.md with repository-specific conventions, commands, boundaries, and verification steps.",
     ),
     finding(
