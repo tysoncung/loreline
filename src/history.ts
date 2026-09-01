@@ -26,7 +26,8 @@ export const METHODOLOGY =
   "current expertise, or contribution quality, and it excludes bot identities and any configured exclusions.";
 
 const RECORD_SEPARATOR = "\x1f";
-const COMMIT_HEADER_PATTERN = /^[0-9a-f]{7,40}\x1f/;
+// 7-64 hex chars covers abbreviated hashes through full SHA-256 object ids.
+const COMMIT_HEADER_PATTERN = /^[0-9a-f]{7,64}\x1f/;
 const NUMSTAT_LINE_PATTERN = /^(?:\d+|-)\t(?:\d+|-)\t(.+)$/;
 const BOT_IDENTITY_PATTERN = /\[bot\]$/i;
 
@@ -57,6 +58,8 @@ export async function analyzeHistory(
     const result = await execFile(
       "git",
       [
+        "-c",
+        "core.quotePath=false",
         "log",
         "--numstat",
         "--no-merges",
@@ -168,11 +171,57 @@ function parseLog(stdout: string): ParsedCommit[] {
     }
     const numstatMatch = NUMSTAT_LINE_PATTERN.exec(line);
     if (numstatMatch && current) {
-      current.files.push(normalizeRenamedPath(numstatMatch[1] ?? ""));
+      current.files.push(normalizeRenamedPath(decodeQuotedPath(numstatMatch[1] ?? "")));
     }
   }
 
   return commits;
+}
+
+// Even with core.quotePath=false (set above), git still wraps a path in
+// double quotes and C-style-escapes it when the path itself contains a
+// literal double quote, backslash, or control character. Decoding must
+// happen before rename resolution, since a quoted rename line quotes the
+// whole "old => new" (or "{old => new}") string, braces and arrow included.
+export function decodeQuotedPath(rawPath: string): string {
+  if (!(rawPath.length >= 2 && rawPath.startsWith('"') && rawPath.endsWith('"'))) {
+    return rawPath;
+  }
+  const inner = rawPath.slice(1, -1);
+  const simpleEscapes: Record<string, number> = {
+    "\\": 0x5c,
+    '"': 0x22,
+    t: 0x09,
+    n: 0x0a,
+    r: 0x0d,
+    a: 0x07,
+    b: 0x08,
+    f: 0x0c,
+    v: 0x0b,
+  };
+  const chunks: Buffer[] = [];
+  for (let i = 0; i < inner.length; i += 1) {
+    const char = inner[i];
+    if (char !== "\\") {
+      chunks.push(Buffer.from(char ?? "", "utf8"));
+      continue;
+    }
+    const next = inner[i + 1];
+    if (next !== undefined && next in simpleEscapes) {
+      chunks.push(Buffer.from([simpleEscapes[next] as number]));
+      i += 1;
+      continue;
+    }
+    const octalMatch = /^[0-7]{1,3}/.exec(inner.slice(i + 1, i + 4));
+    if (octalMatch) {
+      chunks.push(Buffer.from([Number.parseInt(octalMatch[0], 8) & 0xff]));
+      i += octalMatch[0].length;
+      continue;
+    }
+    // Unrecognized escape sequence: keep the backslash literally.
+    chunks.push(Buffer.from("\\", "utf8"));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // Numstat rename lines come in two shapes: a bare "old => new" when the
