@@ -4,7 +4,7 @@
   "description": "Turn undocumented organizational knowledge into verified, AI-ready context.",
   "type": "module",
   "bin": {
-    "loreline": "./dist/cli.js"
+    "loreline": "dist/cli.js"
   },
   "files": [
     "dist",
