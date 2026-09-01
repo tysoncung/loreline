@@ -25,6 +25,7 @@
     "./schemas/v1/verification": "./schemas/v1/verification.schema.json",
     "./schemas/v1/reviews": "./schemas/v1/reviews.schema.json",
     "./schemas/v1/imports": "./schemas/v1/imports.schema.json",
+    "./schemas/v1/handoff": "./schemas/v1/handoff.schema.json",
     "./package.json": "./package.json"
   },
   "scripts": {

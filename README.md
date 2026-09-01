@@ -264,6 +264,27 @@ Adapters move knowledge between Loreline and an external document collection. On
 
 Both commands operate entirely on the local filesystem: nothing is sent to a network service, and the only files touched are the ones under `--source`, `.loreline/imports.json`, `.loreline/context.json`, and `--dest`.
 
+### Knowledge risk dashboard and handoff plan
+
+```bash
+loreline handoff
+loreline handoff --departing "Jamie Diaz" --date 2026-12-01 --redact-names
+```
+
+`loreline handoff` turns whatever artifacts already exist under `.loreline/` (`readiness.json`, `verification.json`, `context.json`) into a single ranked list of knowledge risks, written to `.loreline/handoff.json` and `.loreline/handoff.md`. Every artifact is optional except `readiness.json`; with no readiness report at all (and none passed programmatically), it errors and asks you to run `loreline scan` first.
+
+Each risk is scored and explained with a human-readable factor sentence for every point it contributes:
+
+- A missing readiness finding contributes its full weight; a partial finding contributes half.
+- An area where git history shows one contributor authored more than 80% of at least 5 commits contributes 15 points as a single-person dependency, doubled when `--departing` names that top contributor (case-insensitively).
+- A stale or disputed knowledge review contributes 10 points, once per affected category, to every risk that covers that category.
+- Cited evidence that changed or went missing since the scan, or a failed knowledge verification run, each contribute 10 points to the verification risk.
+- With `--date <YYYY-MM-DD>`, every risk gains a "days until departure" factor (which can be negative) and 10 extra points when fewer than 30 days remain.
+
+Risks are sorted by severity (highest first, tie-broken by id) and capped at 20. Each risk also lists `recommendedTopics` (interview categories worth revisiting) and `suggestedValidators` (the area's second-most-active contributor, or the configured project owner). Unresolved interview questions from `context.json` are listed under open questions, and a verification summary is included when `verification.json` exists.
+
+`--redact-names` replaces every contributor, and review-owner name with a stable `Contributor N` alias (the same person always gets the same number, in first-seen order) everywhere a name would otherwise appear in the plan, including the `--departing` value itself. The project owner from `loreline.yaml` is never redacted, since it identifies an accountable role rather than a contributor being profiled. `--json` also prints the plan to stdout.
+
 ## Configuration
 
 `loreline init` creates:
@@ -342,6 +363,7 @@ Every machine-readable Loreline artifact is validated against a packaged JSON Sc
 - `@tysoncung/loreline/schemas/v1/verification`
 - `@tysoncung/loreline/schemas/v1/reviews`
 - `@tysoncung/loreline/schemas/v1/imports`
+- `@tysoncung/loreline/schemas/v1/handoff`
 
 The `schemaVersion` field controls compatibility. Loreline preserves support for all artifacts within the current major schema version. Additive fields require a new schema version because schemas reject unknown properties, and incompatible changes require an explicit migration path. Unsupported versions fail with field-level validation errors instead of being interpreted as current data.
 
@@ -355,7 +377,7 @@ The `schemaVersion` field controls compatibility. Loreline preserves support for
 
 ## Status
 
-Loreline is an early prototype. It supports repository and document-collection readiness scans (including git history informed knowledge-concentration checks in repository mode), adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes approval workflows and pluggable AI providers.
+Loreline is an early prototype. It supports repository and document-collection readiness scans (including git history informed knowledge-concentration checks in repository mode), adaptive knowledge interviews (deterministic and AI-assisted), provenance-rich context compilation, knowledge verification, human approval and review workflows, markdown import/export adapters, and a ranked knowledge risk dashboard and handoff plan for departing contributors.
 
 The readiness score's baseline shifted with the addition of the `knowledge-concentration` finding: total finding weight moved from 100 to 110, so scores from before this change are not directly comparable to scores after it. Re-run `loreline scan` to get a current baseline.
 

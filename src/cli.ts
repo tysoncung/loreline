@@ -8,6 +8,7 @@ import { plannedExportPaths } from "./adapters/markdown.js";
 import { getAdapter, loadImportLog, saveImportLog, type ImportLog, type ImportPlan } from "./adapters/types.js";
 import { compileWithAi, previewCategories } from "./ai/compiler.js";
 import { initialize, loadConfig, loadRequiredConfig } from "./config.js";
+import { buildHandoffPlan, writeHandoffPlan } from "./handoff.js";
 import { analyzeHistory } from "./history.js";
 import { conductInterview, writeInterview } from "./interview.js";
 import {
@@ -62,6 +63,9 @@ async function main(): Promise<void> {
       break;
     case "export":
       await exportCommand(args);
+      break;
+    case "handoff":
+      await handoffCommand(args);
       break;
     default:
       throw new Error(`Unknown command "${command}". Run "loreline help" for usage.`);
@@ -547,6 +551,60 @@ async function exportCommand(args: string[]): Promise<void> {
   }
 }
 
+async function handoffCommand(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      path: { type: "string", short: "p", default: "." },
+      departing: { type: "string" },
+      date: { type: "string" },
+      "redact-names": { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
+    },
+  });
+
+  const root = path.resolve(values.path);
+  const config = await loadRequiredConfig(root);
+  const outputDirectory = path.join(root, config.output.directory);
+
+  const reportPath = path.join(outputDirectory, "readiness.json");
+  let report: ReadinessReport | undefined;
+  try {
+    const value: unknown = JSON.parse(await readFile(reportPath, "utf8"));
+    report = await validateArtifact<ReadinessReport>("readiness", value, reportPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  // buildHandoffPlan never re-runs git itself; when the report has no
+  // embedded history (e.g. a v1 report, or history was skipped at scan
+  // time), the CLI computes it here and hands it in.
+  const history = report && !report.history ? await analyzeHistory(root) : undefined;
+
+  const plan = await buildHandoffPlan({
+    config,
+    outputDirectory,
+    ...(report ? { report } : {}),
+    ...(history ? { history } : {}),
+    ...(values.departing ? { departing: values.departing } : {}),
+    ...(values.date ? { departureDate: values.date } : {}),
+    redactNames: values["redact-names"],
+  });
+
+  const output = await writeHandoffPlan(plan, outputDirectory);
+
+  if (values.json) {
+    console.log(JSON.stringify(plan, null, 2));
+  } else {
+    console.log(
+      `Handoff plan: ${plan.risks.length} risk(s) ranked, ${plan.openQuestions.length} open question(s).`,
+    );
+    console.log(`Plan: ${output.markdownPath}`);
+  }
+}
+
 // Picks up to `limit` distinct files cited by non-pass findings, honoring
 // `scope.findings` when present (an explicit allow-list of finding ids).
 // `scope.categories` has no direct analogue on a Finding (categories exist
@@ -609,6 +667,8 @@ Usage:
   loreline review --entry <id> --approve|--dispute --owner <name> [--reviewer <name> ...] [--reason <text>] [--due <YYYY-MM-DD>]
   loreline import --adapter markdown --source <directory> [--path <directory>] [--yes]
   loreline export --adapter markdown --dest <directory> [--path <directory>] [--yes] [--force]
+  loreline handoff [--path <directory>] [--departing <name>] [--date <YYYY-MM-DD>]
+  loreline handoff [...] [--redact-names] [--json]
 
 Commands:
   init       Create loreline.yaml and the knowledge workspace
@@ -633,6 +693,12 @@ Commands:
              adapter (currently: markdown). Without --yes, prints the file
              list and writes nothing; --force allows overwriting existing
              files.
+  handoff    Build a ranked knowledge-risk dashboard and handoff plan from
+             whatever readiness, verification, review, and context artifacts
+             exist in .loreline/. --departing names a person leaving so risks
+             they concentrate get flagged; --date adds a departure countdown
+             to every risk. --redact-names replaces contributor, interviewee,
+             and review-owner names with stable "Contributor N" aliases.
 `);
 }
 
