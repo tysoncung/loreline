@@ -1,6 +1,6 @@
 {
   "name": "@tysoncung/loreline",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn undocumented organizational knowledge into verified, AI-ready context.",
   "type": "module",
   "bin": {

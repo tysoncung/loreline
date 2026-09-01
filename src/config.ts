@@ -49,8 +49,22 @@ export async function loadConfig(root: string): Promise<LorelineConfig> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return defaultConfig(root);
     }
+
     throw error;
   }
+}
+
+export async function loadRequiredConfig(root: string): Promise<LorelineConfig> {
+  const configPath = path.join(root, CONFIG_FILE);
+  try {
+    await access(configPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Loreline is not initialized in ${root}. Run "loreline init" first.`);
+    }
+    throw error;
+  }
+  return loadConfig(root);
 }
 
 function validateConfig(value: unknown, configPath: string): LorelineConfig {

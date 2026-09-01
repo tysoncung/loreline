@@ -57,3 +57,18 @@ export interface InterviewRecord {
   answers: Array<InterviewQuestion & { answer: string }>;
   unanswered: string[];
 }
+
+export interface VerificationIssue {
+  file: string;
+  severity: "error" | "warning";
+  message: string;
+}
+
+export interface VerificationReport {
+  schemaVersion: 1;
+  generatedAt: string;
+  project: string;
+  recordsChecked: number;
+  valid: boolean;
+  issues: VerificationIssue[];
+}

@@ -15,6 +15,7 @@ Loreline turns undocumented organizational knowledge into open, verified context
 
 - Keep the core workflow local-first and provider-neutral.
 - Write generated knowledge as open Markdown, YAML, or JSON.
+- Preserve source provenance when compiling interview knowledge.
 - Do not transmit repository or interview content without explicit user action.
 - Add tests for readiness checks and interview behavior.
 - Preserve actionable error messages and non-zero exit codes for automation failures.

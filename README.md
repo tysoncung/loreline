@@ -72,6 +72,22 @@ loreline interview \
 
 Knowledge records are stored as both Markdown and structured JSON under `.loreline/interviews/`.
 
+### Compile reusable AI context
+
+```bash
+loreline compile
+```
+
+Loreline compiles answered interview questions into `.loreline/context.md`, grouped by topic with a citation back to every source record. The output remains explicitly reviewable rather than presenting interview statements as independently verified facts.
+
+### Verify knowledge quality
+
+```bash
+loreline verify --max-age 180
+```
+
+Verification checks that structured interviews belong to the configured project, have no unanswered questions, and are recent enough to trust. It writes `.loreline/verification.json` and exits with status 2 when issues are found, making it suitable for CI.
+
 ## Configuration
 
 `loreline init` creates:
@@ -106,7 +122,7 @@ output:
 
 ## Status
 
-Loreline is an early prototype. The current release supports repository readiness scans and adaptive knowledge interviews. Planned work includes document collections, Git history informed questions, knowledge validation workflows, and pluggable AI providers.
+Loreline is an early prototype. It supports repository readiness scans, adaptive knowledge interviews, provenance-rich context compilation, and knowledge verification. Planned work includes document collections, Git history informed questions, approval workflows, and pluggable AI providers.
 
 ## License
 

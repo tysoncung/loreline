@@ -3,12 +3,17 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { initialize, loadConfig } from "./config.js";
+import { initialize, loadConfig, loadRequiredConfig } from "./config.js";
 import { conductInterview, writeInterview } from "./interview.js";
+import {
+  compileKnowledge,
+  verifyKnowledge,
+  writeVerificationReport,
+} from "./knowledge.js";
 import { scanRepository, writeReport } from "./scanner.js";
 import type { ReadinessReport } from "./types.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
@@ -31,9 +36,16 @@ async function main(): Promise<void> {
     case "interview":
       await interviewCommand(args);
       break;
+    case "compile":
+      await compileCommand(args);
+      break;
+    case "verify":
+      await verifyCommand(args);
+      break;
     default:
       throw new Error(`Unknown command "${command}". Run "loreline help" for usage.`);
   }
+
 }
 
 async function initCommand(args: string[]): Promise<void> {
@@ -118,6 +130,54 @@ async function interviewCommand(args: string[]): Promise<void> {
   console.log(`Knowledge record: ${output.markdownPath}`);
 }
 
+async function compileCommand(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: { path: { type: "string", short: "p", default: "." } },
+  });
+  const root = path.resolve(values.path);
+  const config = await loadRequiredConfig(root);
+  const result = await compileKnowledge(config, path.join(root, config.output.directory));
+  console.log(`Compiled ${result.answers} answers from ${result.records} interview record(s).`);
+  console.log(`AI context: ${result.markdownPath}`);
+}
+
+async function verifyCommand(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      path: { type: "string", short: "p", default: "." },
+      "max-age": { type: "string", default: "180" },
+      json: { type: "boolean", default: false },
+    },
+  });
+  const maxAgeDays = Number(values["max-age"]);
+  if (!Number.isInteger(maxAgeDays) || maxAgeDays < 1) {
+    throw new Error("--max-age must be a positive whole number of days.");
+  }
+
+  const root = path.resolve(values.path);
+  const config = await loadRequiredConfig(root);
+  const outputDirectory = path.join(root, config.output.directory);
+  const report = await verifyKnowledge(config, outputDirectory, maxAgeDays);
+  const reportPath = await writeVerificationReport(report, outputDirectory);
+  if (values.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else if (report.valid) {
+    console.log(`Knowledge verification passed (${report.recordsChecked} record(s)).`);
+    console.log(`Report: ${reportPath}`);
+  } else {
+    console.log(`Knowledge verification found ${report.issues.length} issue(s):`);
+    for (const issue of report.issues) {
+      console.log(`- ${issue.severity.toUpperCase()} ${issue.file}: ${issue.message}`);
+    }
+    console.log(`Report: ${reportPath}`);
+  }
+  if (!report.valid) {
+    process.exitCode = 2;
+  }
+}
+
 function printReport(report: ReadinessReport, outputPath: string): void {
   console.log(`\nLoreline AI readiness: ${report.score}/100\n`);
   for (const finding of report.findings) {
@@ -135,11 +195,15 @@ Usage:
   loreline init [--path <directory>]
   loreline scan [--path <directory>] [--json] [--fail-under <score>]
   loreline interview --interviewee <name> [--path <directory>] [--answers <file>]
+  loreline compile [--path <directory>]
+  loreline verify [--path <directory>] [--max-age <days>] [--json]
 
 Commands:
   init       Create loreline.yaml and the knowledge workspace
   scan       Assess a repository and write machine-readable readiness reports
   interview  Run an adaptive knowledge-transfer interview
+  compile    Compile interview records into reviewable AI context
+  verify     Check knowledge records for completeness and freshness
 `);
 }
 
