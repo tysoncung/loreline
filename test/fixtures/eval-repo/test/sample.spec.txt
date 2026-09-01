@@ -1,0 +1,3 @@
+Placeholder test file so the readiness scan reports the verification finding
+as partial (a test directory exists) rather than missing, giving the
+evaluation suite a real, non-secret file to cite as evidence.

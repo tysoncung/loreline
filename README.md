@@ -298,6 +298,10 @@ Before any file content is sent to a remote AI provider, Loreline scans it for l
 
 `buildTransmissionPreview(root, files)` (`src/transmit.ts`) reads each file, scans its full content, and returns a `TransmissionPreview` with a size, a truncated excerpt, and findings per file. The preview is `blocked` whenever any non-excluded file has a high-confidence finding. `renderTransmissionPreview` turns it into stable, human-readable text, and `approvedPayload` returns the excerpts that are safe to send (high-confidence matches redacted, excluded files dropped) or throws if the preview is still blocked. No finding, rendered preview, or thrown error ever includes more than the first 4 characters of a matched value.
 
+### Evaluation suite
+
+`npm run eval` (a subset of `npm test`) checks question and context quality end to end: question deduplication, readiness-gap coverage, grounding, contradiction preservation, and hard leakage checks for excluded content and planted secrets. See [`docs/evaluations.md`](docs/evaluations.md) for what each eval checks, release thresholds, and how to enable the one model-graded eval locally.
+
 ## Artifact schemas and compatibility
 
 Every machine-readable Loreline artifact is validated against a packaged JSON Schema:
