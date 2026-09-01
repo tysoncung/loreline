@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { defaultConfig } from "../src/config.js";
-import { conductInterview, ensureUniqueSessionId } from "../src/interview.js";
+import { conductInterview, ensureUniqueSessionId, writeInterview } from "../src/interview.js";
 import {
   createSession,
   loadSession,
@@ -225,6 +225,111 @@ test("a session interrupted after two answers resumes to a completed record with
     const finalSession = await loadSession(outputDirectory, session.sessionId);
     assert.equal(finalSession.status, "completed");
     assert.equal(finalSession.answers.length, 3);
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("resuming a completed session without --revise throws and writes no new interview record", async () => {
+  const dir = await tempRoot();
+  try {
+    const outputDirectory = path.join(dir, ".loreline");
+    const config = defaultConfig(dir);
+    config.project.name = "example";
+
+    const session = createSession({
+      project: "example",
+      interviewee: "Alex",
+      interviewer: "Loreline",
+      sourceReport: ".loreline/readiness.json",
+      questions: QUESTIONS,
+    });
+    recordAnswer(session, "q1", "Answer one", "Alex");
+    recordAnswer(session, "q2", "Answer two", "Alex");
+    session.status = "completed";
+    await saveSession(outputDirectory, session);
+
+    const answersPath = path.join(dir, "answers.json");
+    await writeFile(answersPath, JSON.stringify({}));
+
+    await assert.rejects(
+      conductInterview({
+        config,
+        report: report(),
+        reportPath: ".loreline/readiness.json",
+        interviewer: "Loreline",
+        outputDirectory,
+        resume: session.sessionId,
+        answersPath,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(
+          error.message,
+          `Session "${session.sessionId}" is already completed. Pass --revise to reopen it.`,
+        );
+        return true;
+      },
+    );
+
+    let interviewFiles: string[] = [];
+    try {
+      interviewFiles = await readdir(path.join(outputDirectory, "interviews"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+    assert.deepEqual(interviewFiles, []);
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("resuming a completed session with --revise reopens it, and writes exactly one new interview record", async () => {
+  const dir = await tempRoot();
+  try {
+    const outputDirectory = path.join(dir, ".loreline");
+    const config = defaultConfig(dir);
+    config.project.name = "example";
+
+    const session = createSession({
+      project: "example",
+      interviewee: "Alex",
+      interviewer: "Loreline",
+      sourceReport: ".loreline/readiness.json",
+      questions: QUESTIONS,
+    });
+    recordAnswer(session, "q1", "Original answer one", "Alex");
+    recordAnswer(session, "q2", "Original answer two", "Alex");
+    session.status = "completed";
+    await saveSession(outputDirectory, session);
+
+    const answersPath = path.join(dir, "answers.json");
+    await writeFile(
+      answersPath,
+      JSON.stringify({ q1: "Revised answer one", q2: "Revised answer two" }),
+    );
+
+    const record = await conductInterview({
+      config,
+      report: report(),
+      reportPath: ".loreline/readiness.json",
+      interviewer: "Loreline",
+      outputDirectory,
+      resume: session.sessionId,
+      revise: true,
+      answersPath,
+    });
+
+    assert.equal(record.answers.find((a) => a.id === "q1")?.answer, "Revised answer one");
+    assert.equal(record.answers.find((a) => a.id === "q2")?.answer, "Revised answer two");
+
+    await writeInterview(record, outputDirectory);
+    const interviewFiles = (await readdir(path.join(outputDirectory, "interviews"))).filter((file) =>
+      file.endsWith(".json"),
+    );
+    assert.equal(interviewFiles.length, 1);
   } finally {
     await rm(dir, { recursive: true });
   }

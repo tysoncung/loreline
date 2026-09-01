@@ -61,6 +61,32 @@ test("scan honors a CLI --exclude glob: excluded files never appear in filesScan
   }
 });
 
+test("scan honors a CLI --include glob by replacing config includes, so it genuinely narrows the scan", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "loreline-scope-"));
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await mkdir(path.join(root, "docs"), { recursive: true });
+    await writeFile(path.join(root, "README.md"), "# Example\n");
+    await writeFile(path.join(root, "src", "index.ts"), "export {};\n");
+    await writeFile(path.join(root, "docs", "architecture.md"), "# Architecture\n");
+
+    const config = defaultConfig(root);
+    const report = await scanRepository(root, config, { include: ["src/**"], exclude: [] });
+
+    assert.deepEqual(report.scope, {
+      include: ["src/**"],
+      exclude: config.scan.exclude,
+    });
+    assert.equal(report.summary.filesScanned, 1);
+
+    const evidence = report.findings.flatMap((finding) => finding.evidence);
+    assert.ok(!evidence.some((file) => file.startsWith("docs/")));
+    assert.ok(!evidence.includes("README.md"));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
 test("scan without scope flags omits the scope field, matching today's behavior", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "loreline-scope-"));
   try {

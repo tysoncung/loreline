@@ -33,8 +33,13 @@ export async function scanRepository(
   options?: { history?: HistoryInsights },
 ): Promise<ReadinessReport> {
   const narrowed = Boolean(cliScope && (cliScope.include.length > 0 || cliScope.exclude.length > 0));
+  // CLI includes replace the config include list entirely rather than
+  // appending to it: config.scan.include defaults to "**/*", and appending
+  // to a pattern that already matches everything would make --include a
+  // no-op. CLI excludes stay additive to config excludes; exclude-wins
+  // semantics are unchanged.
   const scope: ScanScope = {
-    include: [...config.scan.include, ...(cliScope?.include ?? [])],
+    include: cliScope && cliScope.include.length > 0 ? cliScope.include : config.scan.include,
     exclude: [...config.scan.exclude, ...(cliScope?.exclude ?? [])],
   };
   const history = options?.history ?? NO_HISTORY;

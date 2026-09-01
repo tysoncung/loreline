@@ -153,6 +153,14 @@ export async function conductInterview(options: {
     let session: InterviewSession;
     if (options.resume) {
       session = await loadSession(options.outputDirectory, options.resume);
+      // A completed session resumed without --revise would otherwise skip
+      // every question (each already has an answer) and still fall through
+      // to writing a fresh interview record, duplicating every answer.
+      if (session.status === "completed" && !options.revise) {
+        throw new Error(
+          `Session "${session.sessionId}" is already completed. Pass --revise to reopen it.`,
+        );
+      }
     } else {
       const deterministicQuestions = buildInterviewQuestions(options.report, options.scope);
       // AI question generation happens before the session exists, so a

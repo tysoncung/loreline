@@ -59,7 +59,7 @@ See [docs/github-actions.md](docs/github-actions.md) for an official GitHub Acti
 
 #### Narrowing what gets scanned
 
-`--include` and `--exclude` accept repeatable glob patterns (`**` crosses directories, `*` and `?` do not) and are merged with the patterns in `loreline.yaml`:
+`--include` and `--exclude` accept repeatable glob patterns (`**` crosses directories, `*` and `?` do not). `--exclude` is merged with the excludes in `loreline.yaml`. One or more `--include` flags replace `loreline.yaml`'s includes entirely for that scan, rather than adding to them, so `--include` genuinely narrows what gets scanned instead of being a no-op against the default `**/*`:
 
 ```bash
 loreline scan --exclude "docs/**" --exclude "vendor/**"
@@ -164,7 +164,7 @@ loreline interview --interviewee "Alex Chen" --ai --provider ollama --model llam
 `--ai` adds AI-generated questions and inline follow-ups to the deterministic interview:
 
 1. Loreline resolves the AI provider and model first (from `--provider`/`--model`/`--base-url` flags or the config `ai` block), failing fast on a bad configuration before touching any file content.
-2. It picks up to 8 files cited by the readiness findings that did not pass (honoring `--categories`/`--findings` scope), builds a transmission preview, and prints it. A high-confidence secret finding blocks the run entirely; redact or exclude the file and retry.
+2. It picks up to 8 files cited by the readiness findings that did not pass (honoring `--findings` scope; `--categories` has no effect on evidence selection, since categories exist only on interview questions, not findings), builds a transmission preview, and prints it. A high-confidence secret finding blocks the run entirely; redact or exclude the file and retry.
 3. Unless `--yes` is passed, it asks for confirmation on an interactive terminal (`Send this context to <provider>? [y/N]`) before sending anything; a non-interactive run without `--yes` refuses instead of guessing.
 4. Only the approved, redacted excerpts are sent. The model proposes up to 5 extra questions, which are appended to the deterministic set.
 5. Any answer under 60 characters can trigger one AI-generated follow-up question, asked immediately after the question it follows up on (bounded by `--max-followups`, default 2 per interview).
