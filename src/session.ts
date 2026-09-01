@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { slug } from "./interview.js";
+import type { InterviewScope } from "./scope.js";
 import type { InterviewQuestion, InterviewRecord } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
@@ -24,6 +25,7 @@ export interface InterviewSession {
   status: "open" | "completed";
   questions: InterviewQuestion[];
   answers: SessionAnswer[];
+  scope?: InterviewScope;
 }
 
 export function createSession(options: {
@@ -32,6 +34,7 @@ export function createSession(options: {
   interviewer: string;
   sourceReport: string;
   questions: InterviewQuestion[];
+  scope?: InterviewScope;
 }): InterviewSession {
   const now = new Date().toISOString();
   return {
@@ -46,6 +49,7 @@ export function createSession(options: {
     status: "open",
     questions: options.questions,
     answers: [],
+    ...(options.scope ? { scope: options.scope } : {}),
   };
 }
 
@@ -115,7 +119,7 @@ export function toInterviewRecord(session: InterviewSession): InterviewRecord {
     return { ...question, answer: recorded?.answer ?? "" };
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: session.updatedAt,
     project: session.project,
     interviewee: session.interviewee,
@@ -123,6 +127,7 @@ export function toInterviewRecord(session: InterviewSession): InterviewRecord {
     sourceReport: session.sourceReport,
     answers,
     unanswered: answers.filter((answer) => !answer.answer.trim()).map((answer) => answer.id),
+    ...(session.scope ? { scope: session.scope } : {}),
   };
 }
 

@@ -10,6 +10,7 @@ import {
   toInterviewRecord,
   type InterviewSession,
 } from "./session.js";
+import type { InterviewScope } from "./scope.js";
 import type {
   InterviewQuestion,
   InterviewRecord,
@@ -97,12 +98,22 @@ const FINDING_QUESTIONS: Record<string, InterviewQuestion> = {
   },
 };
 
-export function buildInterviewQuestions(report: ReadinessReport): InterviewQuestion[] {
+export function buildInterviewQuestions(
+  report: ReadinessReport,
+  scope?: InterviewScope,
+): InterviewQuestion[] {
   const targeted = report.findings
     .filter((finding) => finding.status !== "pass")
+    .filter((finding) => !scope?.findings || scope.findings.includes(finding.id))
     .map((finding) => FINDING_QUESTIONS[finding.id])
     .filter((question): question is InterviewQuestion => question !== undefined);
-  return [...targeted, ...BASE_QUESTIONS];
+
+  const all = [...targeted, ...BASE_QUESTIONS];
+  if (!scope?.categories) {
+    return all;
+  }
+  const categories = scope.categories;
+  return all.filter((question) => categories.includes(question.category));
 }
 
 export async function conductInterview(options: {
@@ -115,6 +126,7 @@ export async function conductInterview(options: {
   outputDirectory: string;
   resume?: string;
   revise?: boolean;
+  scope?: InterviewScope;
   onSessionStart?: (session: InterviewSession) => void;
 }): Promise<InterviewRecord> {
   const suppliedAnswers = options.answersPath
@@ -132,7 +144,8 @@ export async function conductInterview(options: {
         interviewee: requireInterviewee(options.interviewee),
         interviewer: options.interviewer,
         sourceReport: options.reportPath,
-        questions: buildInterviewQuestions(options.report),
+        questions: buildInterviewQuestions(options.report, options.scope),
+        ...(options.scope ? { scope: options.scope } : {}),
       });
       // Two interviews for the same interviewee started within the same
       // second would otherwise produce identical session ids and the second

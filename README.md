@@ -56,6 +56,17 @@ loreline scan --fail-under 70
 
 See [docs/github-actions.md](docs/github-actions.md) for an official GitHub Actions workflow you can copy directly into your repository.
 
+#### Narrowing what gets scanned
+
+`--include` and `--exclude` accept repeatable glob patterns (`**` crosses directories, `*` and `?` do not) and are merged with the patterns in `loreline.yaml`:
+
+```bash
+loreline scan --exclude "docs/**" --exclude "vendor/**"
+loreline scan --include "src/**" --include "README.md"
+```
+
+Excluded files never appear in `filesScanned`, finding evidence, or citations. The readiness report only records a `scope` field when `--include` or `--exclude` was used; a scan with no scope flags produces the same artifact as today.
+
 ### Capture knowledge before it leaves
 
 ```bash
@@ -91,6 +102,21 @@ loreline interview --resume 20260901143022-alex-chen --revise
 ```
 
 `--answers` works the same way with `--resume`: any question the file does not cover falls back to the terminal prompt.
+
+#### Narrowing an interview
+
+`--categories` and `--findings` accept comma-separated lists to focus an interview:
+
+```bash
+loreline interview --interviewee "Alex Chen" --categories risk,operations
+loreline interview --interviewee "Alex Chen" --findings architecture,operations
+```
+
+`--categories` filters every question (targeted and base) to those categories. `--findings` filters the targeted questions to only the listed readiness finding ids; base questions are unaffected by it. Combining both applies both filters.
+
+`--interactive` opens a numbered picker over the readiness findings that did not pass, letting you choose which ones to focus on with a comma-separated selection (empty input selects all). It requires an interactive terminal and errors when stdin is not a TTY.
+
+An interview run with a scope records it on the interview record (schema version 2) and on the session, so resuming keeps the same scope.
 
 ### Compile reusable AI context
 
@@ -140,6 +166,7 @@ Every machine-readable Loreline artifact is validated against a packaged JSON Sc
 - `@tysoncung/loreline/schemas/v1/readiness`
 - `@tysoncung/loreline/schemas/v2/readiness`
 - `@tysoncung/loreline/schemas/v1/interview`
+- `@tysoncung/loreline/schemas/v2/interview`
 - `@tysoncung/loreline/schemas/v1/session`
 - `@tysoncung/loreline/schemas/v1/context`
 - `@tysoncung/loreline/schemas/v1/verification`

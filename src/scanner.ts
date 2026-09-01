@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { citeFile } from "./citations.js";
+import { inScope, type ScanScope } from "./scope.js";
 import type { Finding, LorelineConfig, ReadinessReport } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
@@ -12,8 +13,18 @@ interface RepositoryInventory {
   packageScripts: Record<string, string>;
 }
 
-export async function scanRepository(root: string, config: LorelineConfig): Promise<ReadinessReport> {
-  const inventory = await inventoryRepository(root, config);
+export async function scanRepository(
+  root: string,
+  config: LorelineConfig,
+  cliScope?: ScanScope,
+): Promise<ReadinessReport> {
+  const narrowed = Boolean(cliScope && (cliScope.include.length > 0 || cliScope.exclude.length > 0));
+  const scope: ScanScope = {
+    include: [...config.scan.include, ...(cliScope?.include ?? [])],
+    exclude: [...config.scan.exclude, ...(cliScope?.exclude ?? [])],
+  };
+
+  const inventory = await inventoryRepository(root, config, scope);
   const findings = await citeFindings(root, buildFindings(inventory));
   const totalWeight = findings.reduce((sum, finding) => sum + finding.weight, 0);
   const earnedWeight = findings.reduce((sum, finding) => {
@@ -32,6 +43,7 @@ export async function scanRepository(root: string, config: LorelineConfig): Prom
       missing: findings.filter((finding) => finding.status === "missing").length,
       filesScanned: inventory.files.length,
     },
+    ...(narrowed ? { scope } : {}),
     findings,
   };
 }
@@ -152,8 +164,16 @@ function finding(
   return { id, title, status, weight, evidence, recommendation };
 }
 
-async function inventoryRepository(root: string, config: LorelineConfig): Promise<RepositoryInventory> {
+async function inventoryRepository(
+  root: string,
+  config: LorelineConfig,
+  scope: ScanScope,
+): Promise<RepositoryInventory> {
   const files: string[] = [];
+  // Simple name-based exclusion prunes whole directories during the walk so
+  // excluded trees (e.g. node_modules) are never descended into; this stays
+  // in place for speed even though the fuller glob-based scope below is what
+  // ultimately decides which files are kept.
   const excluded = new Set(config.scan.exclude);
 
   async function walk(directory: string): Promise<void> {
@@ -169,7 +189,9 @@ async function inventoryRepository(root: string, config: LorelineConfig): Promis
           await walk(absolute);
         }
       } else if (entry.isFile()) {
-        files.push(relative);
+        if (inScope(relative, scope)) {
+          files.push(relative);
+        }
       }
     }
   }

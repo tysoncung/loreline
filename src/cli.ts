@@ -11,6 +11,7 @@ import {
   writeVerificationReport,
 } from "./knowledge.js";
 import { scanRepository, writeReport } from "./scanner.js";
+import { selectInteractively, type InterviewScope } from "./scope.js";
 import type { ReadinessReport } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
@@ -66,11 +67,16 @@ async function scanCommand(args: string[]): Promise<void> {
       path: { type: "string", short: "p", default: "." },
       json: { type: "boolean", default: false },
       "fail-under": { type: "string" },
+      include: { type: "string", multiple: true, default: [] },
+      exclude: { type: "string", multiple: true, default: [] },
     },
   });
   const root = path.resolve(values.path);
   const config = await loadConfig(root);
-  const report = await scanRepository(root, config);
+  const report = await scanRepository(root, config, {
+    include: values.include,
+    exclude: values.exclude,
+  });
   const output = await writeReport(report, path.join(root, config.output.directory));
 
   if (values.json) {
@@ -100,6 +106,9 @@ async function interviewCommand(args: string[]): Promise<void> {
       answers: { type: "string" },
       resume: { type: "string" },
       revise: { type: "boolean", default: false },
+      categories: { type: "string" },
+      findings: { type: "string" },
+      interactive: { type: "boolean", default: false },
     },
   });
   if (!values.interviewee && !values.resume) {
@@ -121,6 +130,22 @@ async function interviewCommand(args: string[]): Promise<void> {
     await writeReport(report, path.join(root, config.output.directory));
   }
 
+  let findings = values.findings ? splitList(values.findings) : undefined;
+  const categories = values.categories ? splitList(values.categories) : undefined;
+
+  if (values.interactive) {
+    if (!process.stdin.isTTY) {
+      throw new Error("--interactive requires an interactive terminal (TTY) for stdin.");
+    }
+    const items = report.findings
+      .filter((finding) => finding.status !== "pass")
+      .map((finding) => ({ id: finding.id, label: `${finding.title} (${finding.status})` }));
+    findings = await selectInteractively("Select findings to focus the interview on", items);
+  }
+
+  const scope: InterviewScope | undefined =
+    categories || findings ? { ...(categories ? { categories } : {}), ...(findings ? { findings } : {}) } : undefined;
+
   const record = await conductInterview({
     config,
     report,
@@ -131,6 +156,7 @@ async function interviewCommand(args: string[]): Promise<void> {
     ...(values.answers ? { answersPath: path.resolve(values.answers) } : {}),
     ...(values.resume ? { resume: values.resume } : {}),
     revise: values.revise,
+    ...(scope ? { scope } : {}),
     onSessionStart: (session) => {
       console.log(`Session: ${session.sessionId} (resume with --resume ${session.sessionId})`);
     },
@@ -189,6 +215,13 @@ async function verifyCommand(args: string[]): Promise<void> {
   }
 }
 
+function splitList(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function printReport(report: ReadinessReport, outputPath: string): void {
   console.log(`\nLoreline AI readiness: ${report.score}/100\n`);
   for (const finding of report.findings) {
@@ -204,9 +237,10 @@ Turn undocumented organizational knowledge into verified, AI-ready context.
 
 Usage:
   loreline init [--path <directory>]
-  loreline scan [--path <directory>] [--json] [--fail-under <score>]
+  loreline scan [--path <directory>] [--json] [--fail-under <score>] [--include <glob>] [--exclude <glob>]
   loreline interview --interviewee <name> [--path <directory>] [--answers <file>]
   loreline interview --resume <sessionId> [--revise] [--path <directory>] [--answers <file>]
+  loreline interview [...] [--categories <list>] [--findings <list>] [--interactive]
   loreline compile [--path <directory>]
   loreline verify [--path <directory>] [--max-age <days>] [--json]
 

@@ -1,4 +1,5 @@
 import type { Citation } from "./citations.js";
+import type { InterviewScope, ScanScope } from "./scope.js";
 
 export type FindingStatus = "pass" | "missing" | "partial";
 
@@ -23,6 +24,7 @@ export interface ReadinessReport {
     missing: number;
     filesScanned: number;
   };
+  scope?: ScanScope;
   findings: Finding[];
 }
 
@@ -51,7 +53,7 @@ export interface InterviewQuestion {
 }
 
 export interface InterviewRecord {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   project: string;
   interviewee: string;
@@ -59,6 +61,7 @@ export interface InterviewRecord {
   sourceReport: string;
   answers: Array<InterviewQuestion & { answer: string }>;
   unanswered: string[];
+  scope?: InterviewScope;
 }
 
 export interface KnowledgeEntry {

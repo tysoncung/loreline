@@ -21,6 +21,21 @@
         "filesScanned": { "type": "integer", "minimum": 0 }
       }
     },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include", "exclude"],
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "findings": {
       "type": "array",
       "items": {
