@@ -64,6 +64,16 @@ export interface InterviewRecord {
   scope?: InterviewScope;
 }
 
+export interface KnowledgeEntryReview {
+  status: "approved" | "disputed";
+  owner: string;
+  reviewedAt: string;
+  dueDate?: string;
+  reason?: string;
+  stale: boolean;
+  conflicting: boolean;
+}
+
 export interface KnowledgeEntry {
   id: string;
   category: string;
@@ -74,10 +84,11 @@ export interface KnowledgeEntry {
     interviewee: string;
     generatedAt: string;
   };
+  review?: KnowledgeEntryReview;
 }
 
 export interface KnowledgeContext {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   project: string;
   owner: string;

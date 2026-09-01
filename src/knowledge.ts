@@ -1,9 +1,12 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { checkCitation } from "./citations.js";
+import { effectiveReview, fingerprintAnswer, loadReviews, type ReviewEntry, type ReviewLog } from "./review.js";
 import type {
   InterviewRecord,
   KnowledgeContext,
+  KnowledgeEntry,
+  KnowledgeEntryReview,
   LorelineConfig,
   ReadinessReport,
   VerificationIssue,
@@ -83,9 +86,10 @@ export async function compileKnowledge(
     throw new Error("No interview records found. Run \"loreline interview\" first.");
   }
 
+  const reviewLog = await loadReviews(outputDirectory);
   const markdownPath = path.join(outputDirectory, "context.md");
   const jsonPath = path.join(outputDirectory, "context.json");
-  const context = buildContext(config, sources);
+  const context = buildContext(config, sources, reviewLog);
   await validateArtifact<KnowledgeContext>("context", context, jsonPath);
   await mkdir(outputDirectory, { recursive: true });
   await Promise.all([
@@ -109,12 +113,16 @@ export async function verifyKnowledge(
   maxAgeDays: number,
   root: string,
   now = new Date(),
+  options: { requireApproval?: boolean } = {},
 ): Promise<VerificationReport> {
   const issues: VerificationIssue[] = [];
   const loaded = await loadInterviewSet(outputDirectory);
   const sources = loaded.sources;
   issues.push(...loaded.issues);
   issues.push(...(await checkReadinessCitations(root, outputDirectory)));
+  if (options.requireApproval) {
+    issues.push(...(await checkApprovals(outputDirectory, now)));
+  }
 
   if (sources.length === 0 && issues.length === 0) {
     issues.push({
@@ -233,6 +241,66 @@ async function loadReadinessReport(outputDirectory: string): Promise<ReadinessLo
   }
 }
 
+// Enforces the human-approval policy for --require-approval: every compiled
+// entry needs a current (non-stale) approved review. A stale approval (the
+// answer changed since it was reviewed) is downgraded to a warning rather
+// than an error, since it was reviewed once and just needs a fresh look. An
+// approved-and-current review with a past-due dueDate also warns.
+async function checkApprovals(outputDirectory: string, now: Date): Promise<VerificationIssue[]> {
+  const contextPath = path.join(outputDirectory, "context.json");
+  let context: KnowledgeContext;
+  try {
+    const value: unknown = JSON.parse(await readFile(contextPath, "utf8"));
+    context = await validateArtifact<KnowledgeContext>("context", value, contextPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [
+        {
+          file: "context.json",
+          severity: "error",
+          message: "No compiled knowledge context found. Run \"loreline compile\" first.",
+        },
+      ];
+    }
+    return [
+      {
+        file: "context.json",
+        severity: "error",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    ];
+  }
+
+  const issues: VerificationIssue[] = [];
+  for (const entry of context.entries) {
+    const review = entry.review;
+    if (review?.stale) {
+      issues.push({
+        file: entry.id,
+        severity: "warning",
+        message: `Approval for "${entry.question}" is stale: the answer changed since it was reviewed.`,
+      });
+      continue;
+    }
+    if (!review || review.status !== "approved") {
+      issues.push({
+        file: entry.id,
+        severity: "error",
+        message: `"${entry.question}" has no current approved review. Run "loreline review --entry ${entry.id} --approve --owner <name>".`,
+      });
+      continue;
+    }
+    if (review.dueDate && new Date(review.dueDate).getTime() < now.getTime()) {
+      issues.push({
+        file: entry.id,
+        severity: "warning",
+        message: `Review for "${entry.question}" is overdue (due ${review.dueDate}).`,
+      });
+    }
+  }
+  return issues;
+}
+
 export async function writeVerificationReport(
   report: VerificationReport,
   outputDirectory: string,
@@ -244,24 +312,81 @@ export async function writeVerificationReport(
   return reportPath;
 }
 
-function buildContext(config: LorelineConfig, sources: InterviewSource[]): KnowledgeContext {
-  const entries = sources.flatMap((source) =>
+// Resolves the review metadata to attach to one compiled entry. When the
+// entry's current answer has a matching (current) review, that review's
+// details are surfaced directly. When reviews exist for the entryId but none
+// match the current answer fingerprint, the entry is stale: the most recent
+// review on record is still surfaced (so readers know who last looked at it
+// and why it needs a fresh look), but marked `stale: true`. AI-origin answers
+// are never auto-approved here: a review only ever comes from entries
+// recorded through `recordReview`/`applyReview`, driven by the review CLI
+// command, never fabricated during compilation.
+function resolveEntryReview(
+  reviewLog: ReviewLog | undefined,
+  entryId: string,
+  answer: string,
+): KnowledgeEntryReview | undefined {
+  const fingerprint = fingerprintAnswer(answer);
+  const effective = effectiveReview(reviewLog, entryId, fingerprint);
+  if (effective.entry) {
+    return toReviewSummary(effective.entry, false, effective.conflicting);
+  }
+  if (!effective.stale) {
+    return undefined;
+  }
+
+  const priorReviews = (reviewLog?.entries ?? []).filter((review) => review.entryId === entryId);
+  if (priorReviews.length === 0) {
+    return undefined;
+  }
+  const latestPrior = priorReviews.reduce((best, review) =>
+    new Date(review.reviewedAt).getTime() >= new Date(best.reviewedAt).getTime() ? review : best,
+  );
+  return toReviewSummary(latestPrior, true, false);
+}
+
+function toReviewSummary(
+  review: ReviewEntry,
+  stale: boolean,
+  conflicting: boolean,
+): KnowledgeEntryReview {
+  return {
+    status: review.status,
+    owner: review.owner,
+    reviewedAt: review.reviewedAt,
+    ...(review.dueDate ? { dueDate: review.dueDate } : {}),
+    ...(review.reason ? { reason: review.reason } : {}),
+    stale,
+    conflicting,
+  };
+}
+
+function buildContext(
+  config: LorelineConfig,
+  sources: InterviewSource[],
+  reviewLog: ReviewLog | undefined,
+): KnowledgeContext {
+  const entries: KnowledgeEntry[] = sources.flatMap((source) =>
     source.record.answers
       .filter((answer) => answer.answer.trim())
-      .map((answer) => ({
-        id: answer.id,
-        category: answer.category,
-        question: answer.question,
-        answer: answer.answer,
-        source: {
-          file: source.file,
-          interviewee: source.record.interviewee,
-          generatedAt: source.record.generatedAt,
-        },
-      })),
+      .map((answer) => {
+        const review = resolveEntryReview(reviewLog, answer.id, answer.answer);
+        return {
+          id: answer.id,
+          category: answer.category,
+          question: answer.question,
+          answer: answer.answer,
+          source: {
+            file: source.file,
+            interviewee: source.record.interviewee,
+            generatedAt: source.record.generatedAt,
+          },
+          ...(review ? { review } : {}),
+        };
+      }),
   );
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     project: config.project.name,
     owner: config.project.owner,
@@ -283,6 +408,28 @@ function buildContext(config: LorelineConfig, sources: InterviewSource[]): Knowl
   };
 }
 
+// Renders the "_Review: ..._" line(s) shown beneath a compiled entry. A
+// conflicting review renders both the CONFLICTING fact and the latest
+// approved/disputed line; a stale review renders only the stale notice,
+// since the underlying approval no longer speaks to the current answer.
+function renderReviewLines(review: KnowledgeEntryReview | undefined): string[] {
+  if (!review) {
+    return [];
+  }
+  const lines: string[] = [];
+  if (review.conflicting) {
+    lines.push("_Review: CONFLICTING - approved and disputed for the same answer_");
+  }
+  if (review.stale) {
+    lines.push("_Review: stale (answer changed since review)_");
+  } else if (review.status === "approved") {
+    lines.push(`_Review: approved by ${review.owner} on ${review.reviewedAt}_`);
+  } else {
+    lines.push(`_Review: DISPUTED by ${review.owner}: ${review.reason ?? "no reason given"}_`);
+  }
+  return lines;
+}
+
 function renderContext(context: KnowledgeContext): string {
   const categories = new Map<string, KnowledgeContext["entries"]>();
   for (const answer of context.entries) {
@@ -299,14 +446,16 @@ function renderContext(context: KnowledgeContext): string {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(" ");
       const content = entries
-        .map(
-          (entry) => `### ${entry.question}
+        .map((entry) => {
+          const reviewLines = renderReviewLines(entry.review);
+          const reviewSection = reviewLines.length > 0 ? `${reviewLines.join("\n")}\n` : "";
+          return `### ${entry.question}
 
 ${entry.answer}
 
 _Source: ${entry.source.interviewee}, ${entry.source.generatedAt}, \`${entry.source.file}\`_
-`,
-        )
+${reviewSection}`;
+        })
         .join("\n");
       return `## ${title}
 

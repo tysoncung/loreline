@@ -92,9 +92,10 @@ test("reports field-level errors for invalid artifacts", async () => {
 
 test("routes to the v1 schema for every existing artifact kind", async () => {
   for (const kind of existingKinds) {
-    if (kind === "readiness" || kind === "interview") {
+    if (kind === "readiness" || kind === "interview" || kind === "context") {
       // Readiness gained a v2 schema (evidence citations); interview gained a
-      // v2 schema (scope). Both keep v1 supported.
+      // v2 schema (scope); context gained a v2 schema (review metadata). All
+      // three keep v1 supported.
       assert.deepEqual(SUPPORTED_VERSIONS[kind], [1, 2]);
       assert.equal(LATEST_VERSION[kind], 2);
     } else {

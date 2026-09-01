@@ -20,7 +20,9 @@
     "./schemas/v2/interview": "./schemas/v2/interview.schema.json",
     "./schemas/v1/session": "./schemas/v1/session.schema.json",
     "./schemas/v1/context": "./schemas/v1/context.schema.json",
+    "./schemas/v2/context": "./schemas/v2/context.schema.json",
     "./schemas/v1/verification": "./schemas/v1/verification.schema.json",
+    "./schemas/v1/reviews": "./schemas/v1/reviews.schema.json",
     "./package.json": "./package.json"
   },
   "scripts": {

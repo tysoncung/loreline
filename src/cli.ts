@@ -10,6 +10,7 @@ import {
   verifyKnowledge,
   writeVerificationReport,
 } from "./knowledge.js";
+import { applyReview } from "./review.js";
 import { scanRepository, writeReport } from "./scanner.js";
 import { selectInteractively, type InterviewScope } from "./scope.js";
 import type { ReadinessReport } from "./types.js";
@@ -43,6 +44,9 @@ async function main(): Promise<void> {
       break;
     case "verify":
       await verifyCommand(args);
+      break;
+    case "review":
+      await reviewCommand(args);
       break;
     default:
       throw new Error(`Unknown command "${command}". Run "loreline help" for usage.`);
@@ -186,6 +190,7 @@ async function verifyCommand(args: string[]): Promise<void> {
       path: { type: "string", short: "p", default: "." },
       "max-age": { type: "string", default: "180" },
       json: { type: "boolean", default: false },
+      "require-approval": { type: "boolean", default: false },
     },
   });
   const maxAgeDays = Number(values["max-age"]);
@@ -196,7 +201,9 @@ async function verifyCommand(args: string[]): Promise<void> {
   const root = path.resolve(values.path);
   const config = await loadRequiredConfig(root);
   const outputDirectory = path.join(root, config.output.directory);
-  const report = await verifyKnowledge(config, outputDirectory, maxAgeDays, root);
+  const report = await verifyKnowledge(config, outputDirectory, maxAgeDays, root, new Date(), {
+    requireApproval: values["require-approval"],
+  });
   const reportPath = await writeVerificationReport(report, outputDirectory);
   if (values.json) {
     console.log(JSON.stringify(report, null, 2));
@@ -213,6 +220,50 @@ async function verifyCommand(args: string[]): Promise<void> {
   if (!report.valid) {
     process.exitCode = 2;
   }
+}
+
+async function reviewCommand(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      path: { type: "string", short: "p", default: "." },
+      entry: { type: "string" },
+      approve: { type: "boolean", default: false },
+      dispute: { type: "boolean", default: false },
+      owner: { type: "string" },
+      reviewer: { type: "string", multiple: true, default: [] },
+      reason: { type: "string" },
+      due: { type: "string" },
+    },
+  });
+
+  if (!values.entry) {
+    throw new Error("--entry is required.");
+  }
+  if (values.approve === values.dispute) {
+    throw new Error("Exactly one of --approve or --dispute is required.");
+  }
+  if (!values.owner) {
+    throw new Error("--owner is required.");
+  }
+
+  const root = path.resolve(values.path);
+  const config = await loadRequiredConfig(root);
+  const outputDirectory = path.join(root, config.output.directory);
+  const status = values.approve ? "approved" : "disputed";
+  const result = await applyReview(outputDirectory, {
+    entryId: values.entry,
+    status,
+    owner: values.owner,
+    reviewers: values.reviewer,
+    ...(values.reason ? { reason: values.reason } : {}),
+    ...(values.due ? { dueDate: values.due } : {}),
+  });
+
+  console.log(
+    `Recorded ${status} review for "${values.entry}" (${result.entriesReviewed} answer version(s)).`,
+  );
+  console.log(`Reviews: ${result.reviewsPath}`);
 }
 
 function splitList(value: string): string[] {
@@ -242,7 +293,8 @@ Usage:
   loreline interview --resume <sessionId> [--revise] [--path <directory>] [--answers <file>]
   loreline interview [...] [--categories <list>] [--findings <list>] [--interactive]
   loreline compile [--path <directory>]
-  loreline verify [--path <directory>] [--max-age <days>] [--json]
+  loreline verify [--path <directory>] [--max-age <days>] [--json] [--require-approval]
+  loreline review --entry <id> --approve|--dispute --owner <name> [--reviewer <name> ...] [--reason <text>] [--due <YYYY-MM-DD>]
 
 Commands:
   init       Create loreline.yaml and the knowledge workspace
@@ -250,6 +302,7 @@ Commands:
   interview  Run an adaptive knowledge-transfer interview
   compile    Compile interview records into reviewable AI context
   verify     Check knowledge records for completeness and freshness
+  review     Record human approval or dispute for a compiled knowledge entry
 `);
 }
 

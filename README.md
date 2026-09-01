@@ -134,6 +134,23 @@ loreline verify --max-age 180
 
 Verification checks that structured interviews belong to the configured project, have no unanswered questions, and are recent enough to trust. It writes `.loreline/verification.json` and exits with status 2 when issues are found, making it suitable for CI.
 
+### Human approval and review
+
+```bash
+loreline review --entry system-shape --approve --owner "Jamie Diaz" --reviewer "Jamie Diaz" --due 2026-12-01
+loreline review --entry system-shape --dispute --owner "Riley Chen" --reason "This is out of date."
+```
+
+`loreline review` records a human decision on one compiled context entry, appending it to `.loreline/reviews.json`. It requires a compiled `.loreline/context.json` (run `loreline compile` first) and exactly one of `--approve` or `--dispute`. Reviews are keyed by entry id and a fingerprint of the answer text, so approving an entry never silently carries over to a rewritten answer, and every past decision stays in the log even after a newer one is recorded. `--owner` must be a real named human; empty owners and an owner of `ai` are rejected, since AI-origin answers are never auto-approved.
+
+Running `loreline compile` again merges the latest review state into each entry: `.loreline/context.md` shows `_Review: approved by <owner> on <date>_` or `_Review: DISPUTED by <owner>: <reason>_` beside the entry, `_Review: stale (answer changed since review)_` when the answer changed after the review was recorded, and `_Review: CONFLICTING - approved and disputed for the same answer_` when both an approval and a dispute exist for the same answer text.
+
+```bash
+loreline verify --require-approval
+```
+
+`--require-approval` extends verification with an approval-completeness check against `.loreline/context.json`: any compiled entry without a current, approved review is an error; a stale approval (the answer changed since it was reviewed) is a warning; and an approved review past its `--due` date is a warning. Run `loreline compile` before verifying with `--require-approval`, or verification reports a single error asking for it.
+
 ## Configuration
 
 `loreline init` creates:
