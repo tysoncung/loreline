@@ -98,9 +98,11 @@ async function interviewCommand(args: string[]): Promise<void> {
       interviewee: { type: "string" },
       interviewer: { type: "string", default: "Loreline" },
       answers: { type: "string" },
+      resume: { type: "string" },
+      revise: { type: "boolean", default: false },
     },
   });
-  if (!values.interviewee) {
+  if (!values.interviewee && !values.resume) {
     throw new Error("--interviewee is required.");
   }
 
@@ -123,9 +125,15 @@ async function interviewCommand(args: string[]): Promise<void> {
     config,
     report,
     reportPath: path.relative(root, reportPath),
-    interviewee: values.interviewee,
+    ...(values.interviewee ? { interviewee: values.interviewee } : {}),
     interviewer: values.interviewer,
+    outputDirectory: path.join(root, config.output.directory),
     ...(values.answers ? { answersPath: path.resolve(values.answers) } : {}),
+    ...(values.resume ? { resume: values.resume } : {}),
+    revise: values.revise,
+    onSessionStart: (session) => {
+      console.log(`Session: ${session.sessionId} (resume with --resume ${session.sessionId})`);
+    },
   });
   const output = await writeInterview(record, path.join(root, config.output.directory));
   console.log(`Captured ${record.answers.length} answers (${record.unanswered.length} unanswered).`);
@@ -198,6 +206,7 @@ Usage:
   loreline init [--path <directory>]
   loreline scan [--path <directory>] [--json] [--fail-under <score>]
   loreline interview --interviewee <name> [--path <directory>] [--answers <file>]
+  loreline interview --resume <sessionId> [--revise] [--path <directory>] [--answers <file>]
   loreline compile [--path <directory>]
   loreline verify [--path <directory>] [--max-age <days>] [--json]
 

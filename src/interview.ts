@@ -2,6 +2,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import {
+  createSession,
+  loadSession,
+  recordAnswer,
+  saveSession,
+  toInterviewRecord,
+  type InterviewSession,
+} from "./session.js";
 import type {
   InterviewQuestion,
   InterviewRecord,
@@ -101,36 +109,72 @@ export async function conductInterview(options: {
   config: LorelineConfig;
   report: ReadinessReport;
   reportPath: string;
-  interviewee: string;
+  interviewee?: string;
   interviewer: string;
   answersPath?: string;
+  outputDirectory: string;
+  resume?: string;
+  revise?: boolean;
+  onSessionStart?: (session: InterviewSession) => void;
 }): Promise<InterviewRecord> {
-  const questions = buildInterviewQuestions(options.report);
   const suppliedAnswers = options.answersPath
     ? await loadSuppliedAnswers(options.answersPath)
     : undefined;
   const terminal = suppliedAnswers ? undefined : createInterface({ input, output });
 
   try {
-    const answers: InterviewRecord["answers"] = [];
-    for (const question of questions) {
-      const answer = suppliedAnswers?.[question.id] ?? await terminal?.question(`\n${question.question}\n> `) ?? "";
-      answers.push({ ...question, answer: answer.trim() });
+    const session: InterviewSession = options.resume
+      ? await loadSession(options.outputDirectory, options.resume)
+      : createSession({
+          project: options.config.project.name,
+          interviewee: requireInterviewee(options.interviewee),
+          interviewer: options.interviewer,
+          sourceReport: options.reportPath,
+          questions: buildInterviewQuestions(options.report),
+        });
+    options.onSessionStart?.(session);
+
+    // Persist immediately so an interruption before the first answer still
+    // leaves a resumable session on disk.
+    await saveSession(options.outputDirectory, session);
+
+    for (const question of session.questions) {
+      const existing = session.answers.find((entry) => entry.id === question.id);
+      const shouldPrompt = !existing || options.revise === true;
+      if (!shouldPrompt) {
+        continue;
+      }
+
+      const supplied = suppliedAnswers?.[question.id];
+      const raw = supplied ?? (await terminal?.question(`\n${question.question}\n> `)) ?? "";
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      recordAnswer(session, question.id, trimmed, options.interviewer, {
+        revise: existing !== undefined,
+      });
+      // Persist after every accepted answer so interruption or a thrown
+      // provider error mid-interview leaves the open session on disk.
+      await saveSession(options.outputDirectory, session);
     }
 
-    return {
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      project: options.config.project.name,
-      interviewee: options.interviewee,
-      interviewer: options.interviewer,
-      sourceReport: options.reportPath,
-      answers,
-      unanswered: answers.filter((answer) => !answer.answer).map((answer) => answer.id),
-    };
+    session.status = "completed";
+    session.updatedAt = new Date().toISOString();
+    await saveSession(options.outputDirectory, session);
+
+    return toInterviewRecord(session);
   } finally {
     terminal?.close();
   }
+}
+
+function requireInterviewee(interviewee: string | undefined): string {
+  if (!interviewee) {
+    throw new Error("--interviewee is required to start a new interview.");
+  }
+  return interviewee;
 }
 
 export async function writeInterview(
@@ -163,7 +207,7 @@ async function loadSuppliedAnswers(file: string): Promise<Record<string, string>
   return value as Record<string, string>;
 }
 
-function slug(value: string): string {
+export function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
 }
 

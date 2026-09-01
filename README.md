@@ -74,6 +74,24 @@ loreline interview \
 
 Knowledge records are stored as both Markdown and structured JSON under `.loreline/interviews/`.
 
+#### Resuming an interview
+
+Every interview run keeps an open session under `.loreline/sessions/`, saved after each accepted answer, so a dropped connection or an interrupted terminal does not lose earlier answers. Resume it with the session id printed at the start of the run:
+
+```bash
+loreline interview --resume 20260901143022-alex-chen
+```
+
+`--interviewee` is not required with `--resume`; it is taken from the session. Resuming skips questions that already have an answer and only asks the ones still outstanding.
+
+To go back and change an answer that was already recorded, add `--revise`. The interviewer is re-asked every previously answered question, and each prior value is archived in that question's revision history rather than discarded:
+
+```bash
+loreline interview --resume 20260901143022-alex-chen --revise
+```
+
+`--answers` works the same way with `--resume`: any question the file does not cover falls back to the terminal prompt.
+
 ### Compile reusable AI context
 
 ```bash
@@ -122,6 +140,7 @@ Every machine-readable Loreline artifact is validated against a packaged JSON Sc
 - `@tysoncung/loreline/schemas/v1/readiness`
 - `@tysoncung/loreline/schemas/v2/readiness`
 - `@tysoncung/loreline/schemas/v1/interview`
+- `@tysoncung/loreline/schemas/v1/session`
 - `@tysoncung/loreline/schemas/v1/context`
 - `@tysoncung/loreline/schemas/v1/verification`
 

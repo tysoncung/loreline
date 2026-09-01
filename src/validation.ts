@@ -10,6 +10,7 @@ export type ArtifactKind =
   | "config"
   | "readiness"
   | "interview"
+  | "session"
   | "context"
   | "verification";
 
@@ -19,6 +20,7 @@ export const SUPPORTED_VERSIONS: Record<ArtifactKind, number[]> = {
   config: [1],
   readiness: [1, 2],
   interview: [1],
+  session: [1],
   context: [1],
   verification: [1],
 };
@@ -27,6 +29,7 @@ export const LATEST_VERSION: Record<ArtifactKind, number> = {
   config: 1,
   readiness: 2,
   interview: 1,
+  session: 1,
   context: 1,
   verification: 1,
 };
