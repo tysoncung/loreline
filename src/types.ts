@@ -1,3 +1,5 @@
+import type { Citation } from "./citations.js";
+
 export type FindingStatus = "pass" | "missing" | "partial";
 
 export interface Finding {
@@ -7,10 +9,11 @@ export interface Finding {
   weight: number;
   evidence: string[];
   recommendation: string;
+  citations?: Citation[];
 }
 
 export interface ReadinessReport {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   root: string;
   score: number;

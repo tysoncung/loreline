@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { citeFile } from "./citations.js";
 import type { Finding, LorelineConfig, ReadinessReport } from "./types.js";
 import { validateArtifact } from "./validation.js";
 
@@ -13,7 +14,7 @@ interface RepositoryInventory {
 
 export async function scanRepository(root: string, config: LorelineConfig): Promise<ReadinessReport> {
   const inventory = await inventoryRepository(root, config);
-  const findings = buildFindings(inventory);
+  const findings = await citeFindings(root, buildFindings(inventory));
   const totalWeight = findings.reduce((sum, finding) => sum + finding.weight, 0);
   const earnedWeight = findings.reduce((sum, finding) => {
     const multiplier = finding.status === "pass" ? 1 : finding.status === "partial" ? 0.5 : 0;
@@ -21,7 +22,7 @@ export async function scanRepository(root: string, config: LorelineConfig): Prom
   }, 0);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     root,
     score: Math.round((earnedWeight / totalWeight) * 100),
@@ -48,6 +49,18 @@ export async function writeReport(
     writeFile(markdownPath, renderMarkdownReport(report)),
   ]);
   return { jsonPath, markdownPath };
+}
+
+async function citeFindings(root: string, findings: Finding[]): Promise<Finding[]> {
+  return Promise.all(
+    findings.map(async (finding) => {
+      if (finding.evidence.length === 0) {
+        return finding;
+      }
+      const citations = await Promise.all(finding.evidence.map((file) => citeFile(root, file)));
+      return { ...finding, citations };
+    }),
+  );
 }
 
 function buildFindings(inventory: RepositoryInventory): Finding[] {
@@ -192,10 +205,12 @@ async function readPackageScripts(root: string): Promise<Record<string, string>>
 
 function renderMarkdownReport(report: ReadinessReport): string {
   const rows = report.findings
-    .map(
-      (finding) =>
-        `| ${finding.status === "pass" ? "PASS" : finding.status.toUpperCase()} | ${finding.title} | ${finding.recommendation} |`,
-    )
+    .map((finding) => {
+      const citedFiles = finding.citations?.length
+        ? ` ${finding.citations.map((citation) => `\`${citation.file}\``).join(" ")}`
+        : "";
+      return `| ${finding.status === "pass" ? "PASS" : finding.status.toUpperCase()} | ${finding.title} | ${finding.recommendation}${citedFiles} |`;
+    })
     .join("\n");
   return `# AI Readiness Report
 

@@ -120,6 +120,7 @@ Every machine-readable Loreline artifact is validated against a packaged JSON Sc
 
 - `@tysoncung/loreline/schemas/v1/config`
 - `@tysoncung/loreline/schemas/v1/readiness`
+- `@tysoncung/loreline/schemas/v2/readiness`
 - `@tysoncung/loreline/schemas/v1/interview`
 - `@tysoncung/loreline/schemas/v1/context`
 - `@tysoncung/loreline/schemas/v1/verification`

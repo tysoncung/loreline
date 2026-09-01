@@ -1,9 +1,11 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { checkCitation } from "./citations.js";
 import type {
   InterviewRecord,
   KnowledgeContext,
   LorelineConfig,
+  ReadinessReport,
   VerificationIssue,
   VerificationReport,
 } from "./types.js";
@@ -105,12 +107,14 @@ export async function verifyKnowledge(
   config: LorelineConfig,
   outputDirectory: string,
   maxAgeDays: number,
+  root: string,
   now = new Date(),
 ): Promise<VerificationReport> {
   const issues: VerificationIssue[] = [];
   const loaded = await loadInterviewSet(outputDirectory);
   const sources = loaded.sources;
   issues.push(...loaded.issues);
+  issues.push(...(await checkReadinessCitations(root, outputDirectory)));
 
   if (sources.length === 0 && issues.length === 0) {
     issues.push({
@@ -157,6 +161,50 @@ export async function verifyKnowledge(
     valid: issues.length === 0,
     issues,
   };
+}
+
+async function checkReadinessCitations(
+  root: string,
+  outputDirectory: string,
+): Promise<VerificationIssue[]> {
+  const readiness = await loadReadinessReport(outputDirectory);
+  if (!readiness) {
+    return [];
+  }
+
+  const issues: VerificationIssue[] = [];
+  for (const findingEntry of readiness.findings) {
+    for (const citation of findingEntry.citations ?? []) {
+      const state = await checkCitation(root, citation);
+      if (state === "changed") {
+        issues.push({
+          file: citation.file,
+          severity: "warning",
+          message: `Cited evidence changed since the readiness scan for "${findingEntry.title}": \`${citation.file}\`.`,
+        });
+      } else if (state === "missing") {
+        issues.push({
+          file: citation.file,
+          severity: "warning",
+          message: `Cited evidence missing since the readiness scan for "${findingEntry.title}": \`${citation.file}\`.`,
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+async function loadReadinessReport(outputDirectory: string): Promise<ReadinessReport | null> {
+  const reportPath = path.join(outputDirectory, "readiness.json");
+  try {
+    const value: unknown = JSON.parse(await readFile(reportPath, "utf8"));
+    return await validateArtifact<ReadinessReport>("readiness", value, reportPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function writeVerificationReport(

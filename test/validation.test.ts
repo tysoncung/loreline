@@ -92,8 +92,14 @@ test("reports field-level errors for invalid artifacts", async () => {
 
 test("routes to the v1 schema for every existing artifact kind", async () => {
   for (const kind of existingKinds) {
-    assert.deepEqual(SUPPORTED_VERSIONS[kind], [1]);
-    assert.equal(LATEST_VERSION[kind], 1);
+    if (kind === "readiness") {
+      // Readiness gained a v2 schema (evidence citations); v1 stays supported.
+      assert.deepEqual(SUPPORTED_VERSIONS[kind], [1, 2]);
+      assert.equal(LATEST_VERSION[kind], 2);
+    } else {
+      assert.deepEqual(SUPPORTED_VERSIONS[kind], [1]);
+      assert.equal(LATEST_VERSION[kind], 1);
+    }
 
     const fixture = minimalV1Fixtures[kind];
     const result = await validateArtifact<Record<string, unknown>>(
@@ -103,6 +109,40 @@ test("routes to the v1 schema for every existing artifact kind", async () => {
     );
     assert.deepEqual(result, fixture);
   }
+});
+
+test("routes to the v2 schema for a readiness report with citations", async () => {
+  const fixture = {
+    schemaVersion: 2,
+    generatedAt: "2026-01-01T00:00:00Z",
+    root: ".",
+    score: 0,
+    summary: { passed: 0, partial: 0, missing: 0, filesScanned: 1 },
+    findings: [
+      {
+        id: "project-overview",
+        title: "Project overview",
+        status: "pass",
+        weight: 15,
+        evidence: ["README.md"],
+        recommendation: "Keep the README current.",
+        citations: [
+          {
+            file: "README.md",
+            fingerprint: "a".repeat(64),
+            kind: "evidence",
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = await validateArtifact<Record<string, unknown>>(
+    "readiness",
+    fixture,
+    "minimal-readiness-v2.json",
+  );
+  assert.deepEqual(result, fixture);
 });
 
 test("rejects an unsupported schema version", async () => {

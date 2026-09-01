@@ -162,7 +162,7 @@ async function verifyCommand(args: string[]): Promise<void> {
   const root = path.resolve(values.path);
   const config = await loadRequiredConfig(root);
   const outputDirectory = path.join(root, config.output.directory);
-  const report = await verifyKnowledge(config, outputDirectory, maxAgeDays);
+  const report = await verifyKnowledge(config, outputDirectory, maxAgeDays, root);
   const reportPath = await writeVerificationReport(report, outputDirectory);
   if (values.json) {
     console.log(JSON.stringify(report, null, 2));
