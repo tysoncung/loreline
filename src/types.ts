@@ -33,7 +33,7 @@ export interface ReadinessReport {
 }
 
 export interface LorelineConfig {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   project: {
     name: string;
     owner: string;
@@ -45,6 +45,11 @@ export interface LorelineConfig {
   };
   output: {
     directory: string;
+  };
+  ai?: {
+    provider: "openai" | "anthropic" | "ollama" | "fake";
+    model: string;
+    baseUrl?: string;
   };
 }
 

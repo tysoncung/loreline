@@ -92,10 +92,11 @@ test("reports field-level errors for invalid artifacts", async () => {
 
 test("routes to the v1 schema for every existing artifact kind", async () => {
   for (const kind of existingKinds) {
-    if (kind === "readiness" || kind === "interview" || kind === "context") {
+    if (kind === "readiness" || kind === "interview" || kind === "context" || kind === "config") {
       // Readiness gained a v2 schema (evidence citations); interview gained a
-      // v2 schema (scope); context gained a v2 schema (review metadata). All
-      // three keep v1 supported.
+      // v2 schema (scope); context gained a v2 schema (review metadata);
+      // config gained a v2 schema (optional ai block). All four keep v1
+      // supported.
       assert.deepEqual(SUPPORTED_VERSIONS[kind], [1, 2]);
       assert.equal(LATEST_VERSION[kind], 2);
     } else {
@@ -156,7 +157,7 @@ test("rejects an unsupported schema version", async () => {
 
   await assert.rejects(
     validateArtifact("config", value, "future-config.json"),
-    /unsupported schemaVersion 99 \(supported: 1\)/,
+    /unsupported schemaVersion 99 \(supported: 1, 2\)/,
   );
 });
 
@@ -169,7 +170,7 @@ test("rejects a missing schemaVersion", async () => {
 
   await assert.rejects(
     validateArtifact("config", value, "missing-version-config.json"),
-    /unsupported schemaVersion undefined \(supported: 1\)/,
+    /unsupported schemaVersion undefined \(supported: 1, 2\)/,
   );
 });
 
@@ -182,6 +183,6 @@ test("rejects a non-integer schemaVersion", async () => {
 
   await assert.rejects(
     validateArtifact("config", value, "fractional-version-config.json"),
-    /unsupported schemaVersion 1\.5 \(supported: 1\)/,
+    /unsupported schemaVersion 1\.5 \(supported: 1, 2\)/,
   );
 });

@@ -18,7 +18,7 @@ export type ArtifactKind =
 // Only lists versions for kinds that exist today. Later tasks extend both the
 // ArtifactKind union and these maps when they introduce new schema versions.
 export const SUPPORTED_VERSIONS: Record<ArtifactKind, number[]> = {
-  config: [1],
+  config: [1, 2],
   readiness: [1, 2],
   interview: [1, 2],
   session: [1],
@@ -28,7 +28,7 @@ export const SUPPORTED_VERSIONS: Record<ArtifactKind, number[]> = {
 };
 
 export const LATEST_VERSION: Record<ArtifactKind, number> = {
-  config: 1,
+  config: 2,
   readiness: 2,
   interview: 2,
   session: 1,

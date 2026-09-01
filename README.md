@@ -212,11 +212,34 @@ output:
   directory: .loreline
 ```
 
+## AI providers
+
+Loreline ships a provider-neutral layer for talking to an AI model, used by `--ai`-flagged commands. It never makes a network call unless a command is explicitly run with `--ai` flags (or a config `ai` block), and it never stores credentials: API keys are read from the environment only, at the moment a request is made.
+
+An `ai` block in `loreline.yaml` (schema version 2) selects a default provider and model:
+
+```yaml
+schemaVersion: 2
+ai:
+  provider: openai
+  model: gpt-4o-mini
+```
+
+| Provider    | Default endpoint                 | API key environment variable(s)          |
+| ----------- | --------------------------------- | ----------------------------------------- |
+| `openai`    | `https://api.openai.com`          | `OPENAI_API_KEY` or `LORELINE_API_KEY`    |
+| `anthropic` | `https://api.anthropic.com`       | `ANTHROPIC_API_KEY` or `LORELINE_API_KEY` |
+| `ollama`    | `http://localhost:11434`          | none (local server)                       |
+| `fake`      | none (scripted, offline)          | none; responses come from `LORELINE_FAKE_RESPONSES` |
+
+A command's `--provider`, `--model`, and `--baseUrl` flags override the config `ai` block field by field. Credentials are never part of `loreline.yaml`; the config schema has no key field, so nothing secret can end up committed to the repository.
+
 ## Artifact schemas and compatibility
 
 Every machine-readable Loreline artifact is validated against a packaged JSON Schema:
 
 - `@tysoncung/loreline/schemas/v1/config`
+- `@tysoncung/loreline/schemas/v2/config`
 - `@tysoncung/loreline/schemas/v1/readiness`
 - `@tysoncung/loreline/schemas/v2/readiness`
 - `@tysoncung/loreline/schemas/v1/interview`

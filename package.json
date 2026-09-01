@@ -14,6 +14,7 @@
   ],
   "exports": {
     "./schemas/v1/config": "./schemas/v1/config.schema.json",
+    "./schemas/v2/config": "./schemas/v2/config.schema.json",
     "./schemas/v1/readiness": "./schemas/v1/readiness.schema.json",
     "./schemas/v2/readiness": "./schemas/v2/readiness.schema.json",
     "./schemas/v1/interview": "./schemas/v1/interview.schema.json",
