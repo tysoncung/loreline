@@ -19,6 +19,52 @@ const existingKinds: ArtifactKind[] = [
   "verification",
 ];
 
+// The smallest object each kind's v1 schema accepts (schemas are strict:
+// additionalProperties is false and every listed field is required).
+const minimalV1Fixtures: Record<ArtifactKind, Record<string, unknown>> = {
+  config: {
+    schemaVersion: 1,
+    project: { name: "payments", owner: "platform-team" },
+    scan: { include: ["**/*"], exclude: [], maxFiles: 10000 },
+    output: { directory: ".loreline" },
+  },
+  readiness: {
+    schemaVersion: 1,
+    generatedAt: "2026-01-01T00:00:00Z",
+    root: ".",
+    score: 0,
+    summary: { passed: 0, partial: 0, missing: 0, filesScanned: 0 },
+    findings: [],
+  },
+  interview: {
+    schemaVersion: 1,
+    generatedAt: "2026-01-01T00:00:00Z",
+    project: "payments",
+    interviewee: "Alex",
+    interviewer: "Loreline",
+    sourceReport: ".loreline/readiness.json",
+    answers: [],
+    unanswered: [],
+  },
+  context: {
+    schemaVersion: 1,
+    generatedAt: "2026-01-01T00:00:00Z",
+    project: "payments",
+    owner: "platform-team",
+    entries: [],
+    unresolved: [],
+    sources: [],
+  },
+  verification: {
+    schemaVersion: 1,
+    generatedAt: "2026-01-01T00:00:00Z",
+    project: "payments",
+    recordsChecked: 0,
+    valid: true,
+    issues: [],
+  },
+};
+
 test("accepts a valid version 1 configuration fixture", async () => {
   const value: unknown = JSON.parse(
     await readFile(path.join(fixtures, "valid-config.json"), "utf8"),
@@ -44,10 +90,18 @@ test("reports field-level errors for invalid artifacts", async () => {
   );
 });
 
-test("routes to the v1 schema for every existing artifact kind", () => {
+test("routes to the v1 schema for every existing artifact kind", async () => {
   for (const kind of existingKinds) {
     assert.deepEqual(SUPPORTED_VERSIONS[kind], [1]);
     assert.equal(LATEST_VERSION[kind], 1);
+
+    const fixture = minimalV1Fixtures[kind];
+    const result = await validateArtifact<Record<string, unknown>>(
+      kind,
+      fixture,
+      `minimal-${kind}.json`,
+    );
+    assert.deepEqual(result, fixture);
   }
 });
 
