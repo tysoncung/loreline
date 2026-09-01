@@ -234,6 +234,18 @@ ai:
 
 A command's `--provider`, `--model`, and `--baseUrl` flags override the config `ai` block field by field. Credentials are never part of `loreline.yaml`; the config schema has no key field, so nothing secret can end up committed to the repository.
 
+### Transmission safety
+
+Before any file content is sent to a remote AI provider, Loreline scans it for likely secrets and builds a transmission preview so a human can review exactly what would leave the machine.
+
+`scanTextForSecrets` (`src/secrets.ts`) checks content against a set of rules:
+
+- **High confidence** (blocks transmission): PEM private key blocks, AWS access key IDs, GitHub tokens (classic and fine-grained PAT), Slack tokens, Stripe live keys, and quoted `key: "value"` / `key = "value"` assignments where the key name looks like `api_key`, `secret`, `token`, or `password`.
+- **Medium confidence** (reported, does not block): JWT-shaped strings and long base64/hex runs with high Shannon entropy.
+- **Sensitive files**: any file named `.env`, `.env.*`, `*.pem`, or `id_rsa*` is flagged wholesale as a single high-confidence finding, without its content ever being scanned or echoed anywhere.
+
+`buildTransmissionPreview(root, files)` (`src/transmit.ts`) reads each file, scans its full content, and returns a `TransmissionPreview` with a size, a truncated excerpt, and findings per file. The preview is `blocked` whenever any non-excluded file has a high-confidence finding. `renderTransmissionPreview` turns it into stable, human-readable text, and `approvedPayload` returns the excerpts that are safe to send (high-confidence matches redacted, excluded files dropped) or throws if the preview is still blocked. No finding, rendered preview, or thrown error ever includes more than the first 4 characters of a matched value.
+
 ## Artifact schemas and compatibility
 
 Every machine-readable Loreline artifact is validated against a packaged JSON Schema:
